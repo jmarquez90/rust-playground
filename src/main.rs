@@ -3,6 +3,7 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
+use rayon::prelude::*;
 
 // const k1 = 1.2;
 // const b = 0.75;
@@ -58,7 +59,7 @@ impl Index {
 
         // 2. Index each file on its own. Step 2 makes this run in parallel.
         let doc_indexes = paths
-            .iter()
+            .par_iter()                         // was .iter()
             .map(|path| index_file(path))
             .collect::<std::io::Result<Vec<DocIndex>>>()?;
 
@@ -77,7 +78,7 @@ impl Index {
             }
         }
         Ok(index)
-        
+
     }
 
     // Rank documents with BM25 (k1 = 1.2, b = 0.75).
