@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::time::Instant;
 
 // const k1 = 1.2;
 // const b = 0.75;
@@ -14,6 +15,28 @@ fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
+
+struct DocIndex {
+    name: String,
+    len: usize,
+    postings: HashMap<String, Vec<usize>>,
+}
+
+
+fn index_file(path: &Path) -> std::io::Result<DocIndex> {
+    let text = fs::read_to_string(path)?;
+    let words = tokenize(&text);
+    let len = words.len();
+    let mut postings: HashMap<String, Vec<usize>> = HashMap::new();
+    for (pos, word) in words.into_iter().enumerate() {
+        postings.entry(word).or_default().push(pos);
+    }
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    Ok(DocIndex { name, len, postings })
+}
+
+
+
 struct Index {
     docs: Vec<String>,                                     // doc id -> file name
     doc_lengths: Vec<usize>,                               // doc id -> word count
@@ -21,35 +44,40 @@ struct Index {
 }
 
 impl Index {
+
+    // Builds the index in parallel
     fn build(dir: &Path) -> std::io::Result<Index> {
+        // 1. Collect the .txt files.
+        let mut paths = Vec::new();
+        for entry in fs::read_dir(dir)? {
+            let path = entry?.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("txt") {
+                paths.push(path);
+            }
+        }
+
+        // 2. Index each file on its own. Step 2 makes this run in parallel.
+        let doc_indexes = paths
+            .iter()
+            .map(|path| index_file(path))
+            .collect::<std::io::Result<Vec<DocIndex>>>()?;
+
+        // 3. Merge the per-file indices into one.
         let mut index = Index {
             docs: Vec::new(),
             doc_lengths: Vec::new(),
             postings: HashMap::new(),
         };
-        for entry in fs::read_dir(dir)? {
-            let path = entry?.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("txt") {
-                continue;
-            }
-            let text = fs::read_to_string(&path)?;
-            let doc_id = index.docs.len();
-            let words = tokenize(&text);
-            index.doc_lengths.push(words.len());
-            index
-                .docs
-                .push(path.file_name().unwrap().to_string_lossy().into_owned());
-            for (pos, word) in words.into_iter().enumerate() {
-                index
-                    .postings
-                    .entry(word)
-                    .or_default()
-                    .entry(doc_id)
-                    .or_default()
-                    .push(pos);
+        for (doc_id, doc) in doc_indexes.into_iter().enumerate() {
+            index.docs.push(doc.name);
+            index.doc_lengths.push(doc.len);
+            for (word, positions) in doc.postings {
+                let inner_map = index.postings.entry(word).or_default();
+                inner_map.insert(doc_id, positions);
             }
         }
         Ok(index)
+        
     }
 
     // Rank documents with BM25 (k1 = 1.2, b = 0.75).
@@ -143,11 +171,16 @@ fn main() -> std::io::Result<()> {
         eprintln!("usage: playground <folder> <query words...>");
         std::process::exit(2);
     }
+    // timeing the build
+    let start = Instant::now();
+
+    // building the index
     let index = Index::build(Path::new(&args[1]))?;
     println!(
-        "{} documents, {} distinct words",
+        "{} documents, {} distinct words, indexed in {:?}",
         index.docs.len(),
-        index.postings.len()
+        index.postings.len(),
+        start.elapsed(),
     );
 
     if args[2] == "--phrase" {

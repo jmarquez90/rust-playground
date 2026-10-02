@@ -7,5 +7,11 @@
     "source=rust-playground-target,target=/home/dev/target,type=volume",
     "source=rust-playground-registry,target=/usr/local/cargo/registry,type=volume"
   ],
-  "customizations": { "vscode": { "extensions": ["rust-lang.rust-analyzer"] } }
+  "customizations": {
+    "vscode": { "extensions": ["rust-lang.rust-analyzer"] },
+    "jetbrains": {
+      "backend": "PyCharm",
+      "plugins": ["com.jetbrains.rust"]
+    }
+  }
 }
