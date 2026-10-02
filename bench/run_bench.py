@@ -8,14 +8,23 @@ Run from the repo root, inside the dev container:
 
     uv run --python 3.14 bench/run_bench.py snapshot baseline      # build Rust, keep a copy named "baseline"
     uv run --python 3.14 bench/run_bench.py run --runs 20          # smoke test
-    uv run --python 3.14 bench/run_bench.py run --runs 1000 --name baseline
+    uv run --python 3.14 bench/run_bench.py run --runs 1000 --name languages
+
+Tuning experiments use rayon as the baseline. After each change: commit, take a snapshot, then
+run every snapshot so far in rayon mode only, so each experiment adds one line to the chart:
+
+    uv run --python 3.14 bench/run_bench.py snapshot s1-profile --note "lto, codegen-units"
+    uv run --python 3.14 bench/run_bench.py run --no-python --rust-modes rayon \
+        --rust baseline,s1-profile --runs 1000 --name s1-profile
 
 What one experiment does:
 
 - Copies data/*.txt to a container-local folder once (~/bench-data), so runs don't read
   through the Windows-mounted folder.
 - Builds the configurations: python/seq, python/process, python/thread, and for every
-  Rust snapshot rust/<label>/1-thread (RAYON_NUM_THREADS=1) and rust/<label>/rayon.
+  Rust snapshot the modes in --rust-modes: rust/<label>/1-thread (RAYON_NUM_THREADS=1) and
+  rust/<label>/rayon (all cores). Snapshots run in the order given to --rust (default: the
+  order they were taken), and that order is kept in the charts.
 - Runs warm-up rounds (recorded, flagged) and then --runs measured rounds. Every round runs
   each configuration once, in a freshly shuffled order, so drift and background noise land
   on all configurations equally.
@@ -53,6 +62,7 @@ SNAPSHOTS = Path.home() / "bench-bins"
 CORPUS_COPY = Path.home() / "bench-data"
 QUERY = "whale"  # the Rust program needs a query; search time is outside build_ms
 PY_MODES = ["seq", "process", "thread"]
+RUST_MODES = {"1-thread": "1", "rayon": None}  # mode -> RAYON_NUM_THREADS (None = all cores)
 
 # Durations as printed by Rust's Duration Debug ("146.2ms", "1.2s") and by index_bench.py ("963.1 ms").
 UNIT_MS = {"ns": 1e-6, "µs": 1e-3, "μs": 1e-3, "us": 1e-3, "ms": 1.0, "s": 1000.0}
@@ -238,12 +248,18 @@ def build_configs(args, corpus):
                 "env": {},
             })
     snaps = {m["label"]: m for m in load_snapshots()}
-    labels = list(snaps) if args.rust is None else [l for l in args.rust.split(",") if l and l != "none"]
+    labels = list(snaps) if args.rust is None else [
+        l.strip() for l in args.rust.split(",") if l.strip() and l.strip() != "none"]
+    modes = [m.strip() for m in args.rust_modes.split(",") if m.strip()]
+    unknown = [m for m in modes if m not in RUST_MODES]
+    if unknown or not modes:
+        sys.exit(f"--rust-modes takes {', '.join(RUST_MODES)} (comma-separated); got '{args.rust_modes}'.")
     for label in labels:
         if label not in snaps:
             sys.exit(f"No snapshot named '{label}'. Available: {', '.join(snaps) or 'none'}")
         binary = str(SNAPSHOTS / label / "bin")
-        for mode, threads in [("1-thread", "1"), ("rayon", None)]:
+        for mode in modes:
+            threads = RUST_MODES[mode]
             configs.append({
                 "config": f"rust/{label}/{mode}", "language": "rust", "variant": label, "mode": mode,
                 "cmd": [binary, corpus, QUERY], "env": {"RAYON_NUM_THREADS": threads},
@@ -390,6 +406,8 @@ def main():
     p.add_argument("--warmup", type=int, default=5, help="warm-up rounds, recorded but flagged (default 5)")
     p.add_argument("--name", default="run", help="experiment name, used in the file name")
     p.add_argument("--rust", default=None, help="comma-separated snapshot labels (default: all; 'none' for none)")
+    p.add_argument("--rust-modes", default="1-thread,rayon",
+                   help="Rust modes per snapshot: 1-thread, rayon, or both (default both; tuning uses rayon)")
     p.add_argument("--no-python", action="store_true", help="skip the Python configurations")
     p.add_argument("--corpus-dir", default=str(CORPUS_COPY), help="container-local copy of data/")
     p.add_argument("--seed", type=int, default=None, help="shuffle seed (default: random, recorded)")
