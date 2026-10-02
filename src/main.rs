@@ -5,8 +5,11 @@ use std::path::Path;
 use std::time::Instant;
 use rayon::prelude::*;
 
-// const k1 = 1.2;
-// const b = 0.75;
+
+// BM25 parameters
+const K1: f64 = 1.2; // how quickly repeated words stop adding to the score
+const B: f64 = 0.75; // how much long documents are penalized
+
 
 // tokenize the text
 fn tokenize(text: &str) -> Vec<String> {
@@ -96,8 +99,8 @@ impl Index {
 
             for (&doc_id, positions) in postings {
                 let tf = positions.len() as f64;
-                let len_norm = 1.0 - 0.75 + 0.75 * self.doc_lengths[doc_id] as f64 / avg_len;
-                *scores.entry(doc_id).or_insert(0.0) += idf * tf * 2.2 / (tf + 1.2 * len_norm);
+                let len_norm = 1.0 - B + B * self.doc_lengths[doc_id] as f64 / avg_len;
+                *scores.entry(doc_id).or_insert(0.0) += idf * tf * (K1 + 1.0) / (tf + K1 * len_norm);
             }
         }
         let mut ranked: Vec<(f64, &str)> = scores
