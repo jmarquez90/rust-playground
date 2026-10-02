@@ -1,0 +1,11 @@
+{
+  "name": "rust-playground",
+  "build": { "dockerfile": "Dockerfile" },
+  "remoteUser": "dev",
+  "containerEnv": { "CARGO_TARGET_DIR": "/home/dev/target" },
+  "mounts": [
+    "source=rust-playground-target,target=/home/dev/target,type=volume",
+    "source=rust-playground-registry,target=/usr/local/cargo/registry,type=volume"
+  ],
+  "customizations": { "vscode": { "extensions": ["rust-lang.rust-analyzer"] } }
+}
