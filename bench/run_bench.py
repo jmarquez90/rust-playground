@@ -60,6 +60,7 @@ What one experiment does:
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import random
@@ -98,8 +99,8 @@ TIMINGS = {
     "index_ms": re.compile(r"per-file indexing:\s*" + DUR),
     "merge_ms": re.compile(r"merge:\s*" + DUR),
 }
-COUNTS = re.compile(r"(\d+) documents, (\d+) distinct words")
-WORKERS = re.compile(r"workers:\s*(\d+)")
+COUNTS = re.compile(r"(\d{1,15}) documents, (\d{1,15}) distinct words")  # bounded: no backtracking blow-up
+WORKERS = re.compile(r"workers:\s*(\d{1,6})")
 GIL = re.compile(r"\bGIL (on|off)\b")
 
 
@@ -443,7 +444,7 @@ def run_once(config, extra_env=None):
     row["threads"] = int(m.group(1)) if m else config.get("threads")
     m = GIL.search(text)
     row["gil"] = m.group(1) if m else None
-    if proc.returncode != 0 or row["build_ms"] != row["build_ms"]:  # NaN check
+    if proc.returncode != 0 or math.isnan(row["build_ms"]):
         reason = f"exit code {proc.returncode}" if proc.returncode != 0 else "no 'indexed in <time>' found in its output"
         row["error"] = f"{reason}: {(stderr.strip() or stdout.strip())[-400:]}"
     return row
@@ -575,6 +576,8 @@ def cmd_run(args):
         for rnd in range(total_rounds):
             warmup = rnd < args.warmup
             order = configs[:]
+            # Not security-sensitive: this only shuffles run order, and it is seeded (the seed is
+            # recorded) so an experiment's order can be replayed. A cryptographic RNG can't be seeded.
             rng.shuffle(order)
             for pos, config in enumerate(order):
                 row = {

@@ -7,7 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && rustup component add clippy rustfmt rust-src \
  && useradd -m -s /bin/bash dev \
  && mkdir -p /home/dev/target /usr/local/cargo/registry \
- && chown dev /home/dev/target \
- && chmod a+w /usr/local/cargo/registry
+ && chown dev /home/dev/target /usr/local/cargo/registry
 
 USER dev
