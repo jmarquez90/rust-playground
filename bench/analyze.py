@@ -14,16 +14,22 @@ rayon configuration (the tuning baseline). --reference overrides both.
 Writes into bench/results/<file stem>/:
 
 - summary.csv / summary.md: per configuration n, mean, SD, CV, percentiles, the median with a
-  95% bootstrap confidence interval, phase medians, and speed-up against the reference.
+  95% bootstrap confidence interval, phase medians, and speed-up against the reference; and a
+  resources table: threads, GIL, CPU time, cores in use (CPU time / wall time), peak memory of
+  the largest process and of the whole process tree (medians; files from before these were
+  recorded leave it out).
 - steps.csv: when there are two or more Rust snapshots, each one's change against the first
   snapshot and against the previous one, per mode, with 95% bootstrap intervals.
-- run_sequence_*.png: build time against run number. Every configuration in a chart shares one
-  y-axis (starting at 0) and has its own color, named in the key.
-  - run_sequence_python.png: the Python modes.
-  - run_sequence_rust.png, when the file has one Rust snapshot: its 1-thread and rayon runs.
-  - run_sequence_rust_rayon.png (and _1-thread, if run), when it has two or more snapshots:
-    one chart per mode, the snapshots in step order. A tuning experiment run with
+- run_sequence*.png: build time against run number. Every configuration in a chart shares one
+  y-axis (starting at 0) and has its own color, named in the key; Rust lines are dashed.
+  - run_sequence.png, for a language comparison (Python plus one Rust snapshot, 8
+    configurations at most): everything on one chart.
+  - run_sequence_python.png and run_sequence_rust.png: the same split by language, when there
+    are more than 8 configurations.
+  - run_sequence_rust_rayon.png (and _1-thread, if run), when the file has two or more Rust
+    snapshots: one chart per mode, the snapshots in step order. A tuning experiment run with
     --rust-modes rayon gives one chart that gains a line with every step.
+  Older run_sequence*.png files in the folder are replaced.
   Default band (--band pct): rolling median with the rolling 16th-84th percentiles, the range
   +/-1 SD covers for normally distributed data, but not stretched by single outliers. --band sd
   draws the rolling mean +/-1 SD instead. Window = 5% of the runs, at least 10. A chart holds at
@@ -80,8 +86,10 @@ def load(path):
 def config_order(df, meta):
     labels = [s["label"] for s in meta.get("rust_snapshots", [])]
     labels += sorted(set(df.loc[df.language == "rust", "variant"]) - set(labels))
-    preferred = [f"python/{m}" for m in PY_MODES] + [f"rust/{l}/{m}" for l in labels for m in RUST_MODES]
     present = list(dict.fromkeys(df["config"]))
+    preferred = [f"python/{m}" for m in PY_MODES]
+    preferred += sorted(c for c in present if c.startswith("python") and c not in preferred)  # e.g. python3.14t
+    preferred += [f"rust/{l}/{m}" for l in labels for m in RUST_MODES]
     return [c for c in preferred if c in present] + [c for c in present if c not in preferred], labels
 
 
@@ -113,8 +121,28 @@ def summarize(data, order, reference, rng):
             "index_median_ms": d["index_ms"].median(), "merge_median_ms": d["merge_ms"].median(),
             "wall_median_ms": d["wall_ms"].median(),
             "speedup": ref_median / np.median(x), "speedup_ci_low": s_lo, "speedup_ci_high": s_hi,
+            **resources(d),
         })
     return pd.DataFrame(rows), boots
+
+
+RESOURCE_COLUMNS = ["threads", "gil", "cpu_median_ms", "cores_used", "peak_rss_median_mb", "peak_tree_rss_median_mb"]
+
+
+def resources(d):
+    """Median resource use for one configuration; NaN where the file predates these columns."""
+    nan = float("nan")
+    has = lambda col: col in d.columns and d[col].notna().any()
+    threads = d["threads"].dropna() if has("threads") else None
+    gil = d["gil"].dropna() if has("gil") else None
+    return {
+        "threads": int(threads.mode().iloc[0]) if threads is not None and len(threads) else nan,
+        "gil": gil.mode().iloc[0] if gil is not None and len(gil) else "",
+        "cpu_median_ms": d["cpu_ms"].median() if has("cpu_ms") else nan,
+        "cores_used": (d["cpu_ms"] / d["wall_ms"]).median() if has("cpu_ms") else nan,
+        "peak_rss_median_mb": d["peak_rss_mb"].median() if has("peak_rss_mb") else nan,
+        "peak_tree_rss_median_mb": d["peak_tree_rss_mb"].median() if has("peak_tree_rss_mb") else nan,
+    }
 
 
 def steps_table(summary, boots, labels):
@@ -137,11 +165,12 @@ def steps_table(summary, boots, labels):
 def run_sequence_groups(order):
     """Which configurations share a chart.
 
-    Python: one chart. Rust with one snapshot (the language comparison): one chart with its modes.
-    Rust with two or more snapshots (tuning): one chart per mode, snapshots in step order. A chart
-    holds at most 8 configurations (the palette's limit); a bigger group is split into parts.
+    Language comparison (Python plus at most one Rust snapshot, 8 configurations at most): one
+    chart. Otherwise Python gets one chart; Rust with one snapshot gets one chart with its modes;
+    Rust with two or more snapshots (tuning) gets one chart per mode, snapshots in step order.
+    A chart holds at most 8 configurations (the palette's limit); a bigger group is split into parts.
     """
-    python = [c for c in order if c.startswith("python/")]
+    python = [c for c in order if c.startswith("python")]
     rust = [c for c in order if c.startswith("rust/")]
     other = [c for c in order if c not in python and c not in rust]
     groups = []
@@ -154,9 +183,12 @@ def run_sequence_groups(order):
             groups.append((f"{key}_{i + 1}" if many else key,
                            f"{title} (part {i + 1} of {len(parts)})" if many else title, part))
 
+    snapshots = list(dict.fromkeys(c.split("/")[1] for c in rust))
+    if python and rust and len(snapshots) == 1 and len(python) + len(rust) <= len(SERIES) and not other:
+        groups.append(("", "Python and Rust", python + rust))
+        return groups
     if python:
         add("python", "Python", python)
-    snapshots = list(dict.fromkeys(c.split("/")[1] for c in rust))
     if len(snapshots) == 1:
         add("rust", "Rust", rust)
     elif rust:
@@ -205,9 +237,10 @@ def chart_run_sequence(data, configs, title, out, band="pct"):
         above += int((y > ymax).sum())
     handles, labels = [], []
     for c, color, x, y, center, lo, hi in series:  # ...then every line on top
-        ax.plot(x, center, color=color, linewidth=1.8, zorder=3)
+        style = (0, (5, 2)) if c.startswith("rust") else "-"  # language as a second cue: Rust dashed
+        ax.plot(x, center, color=color, linewidth=1.8, linestyle=style, zorder=3)
         handles.append((Patch(facecolor=color, alpha=0.13, linewidth=0),
-                        plt.Line2D([], [], color=color, linewidth=1.8)))
+                        plt.Line2D([], [], color=color, linewidth=1.8, linestyle=style)))
         labels.append(f"{c}\nmedian {np.median(y):,.0f} ms · SD {y.std(ddof=1):,.0f} ms")
 
     ax.set_xlim(0, n_runs + 1)
@@ -358,6 +391,17 @@ def main():
     fmt = {c: "{:,.1f}" for c in cols} | {"config": "{}", "n": "{:,}", "cv_pct": "{:.1f}%", "speedup": "{:.2f}×"}
     md = [f"# {path.stem}", "", f"Reference for speed-up: `{reference}`. Times in ms; CI = 95% bootstrap "
           f"interval of the median ({BOOTSTRAP} resamples).", "", to_markdown(summary, cols, fmt)]
+    has_resources = summary["cpu_median_ms"].notna().any()
+    if has_resources:
+        rcols = ["config", "threads", "gil", "wall_median_ms", "cpu_median_ms", "cores_used",
+                 "peak_rss_median_mb", "peak_tree_rss_median_mb"]
+        rfmt = {"config": "{}", "gil": "{}", "threads": "{:.0f}", "wall_median_ms": "{:,.1f}",
+                "cpu_median_ms": "{:,.1f}", "cores_used": "{:.2f}", "peak_rss_median_mb": "{:,.1f}",
+                "peak_tree_rss_median_mb": "{:,.1f}"}
+        md += ["", "## Resources", "", "Medians per run, for the whole process (start-up and exit included). "
+               "cores_used = CPU time / wall time. Peak memory in MB: the largest single process, and the "
+               "whole process tree (sampled, so approximate; memory shared between processes counts in each).",
+               "", to_markdown(summary.fillna({"threads": float("nan")}), rcols, rfmt).replace("nan", "")]
 
     rust_labels = [l for l in labels if any(c.startswith(f"rust/{l}/") for c in order)]
     if len(rust_labels) >= 2:
@@ -369,13 +413,11 @@ def main():
         sfmt = {c: "{:+.1f}%" for c in scols} | {"mode": "{}", "snapshot": "{}", "median_ms": "{:,.1f}"}
         md += ["", "## Rust snapshots", "", to_markdown(steps, scols, sfmt)]
 
-    legacy = out_dir / "run_sequence.png"
-    if legacy.exists():
-        legacy.unlink()
-        print("Removed the old run_sequence.png (now one chart per language).")
+    for old in out_dir.glob("run_sequence*.png"):  # replaced below; the grouping may have changed
+        old.unlink()
     run_files = []
     for key, title, configs in run_sequence_groups(order):
-        name = f"run_sequence_{key}.png"
+        name = f"run_sequence_{key}.png" if key else "run_sequence.png"
         chart_run_sequence(data, configs, title, out_dir / name, args.band)
         run_files.append(name)
     chart_distribution(summary, reference, out_dir / "distribution.png")
@@ -384,6 +426,9 @@ def main():
     with pd.option_context("display.width", 160, "display.max_columns", 20):
         print(summary[["config", "n", "median_ms", "median_ci_low", "median_ci_high", "sd_ms", "cv_pct",
                        "index_median_ms", "merge_median_ms", "speedup"]].round(2).to_string(index=False))
+        if has_resources:
+            print(summary[["config", "threads", "gil", "cpu_median_ms", "cores_used", "peak_rss_median_mb",
+                           "peak_tree_rss_median_mb"]].round(2).to_string(index=False))
     print(f"Wrote {out_dir.relative_to(REPO)}/: summary.csv, summary.md, "
           + ("steps.csv, steps.png, " if len(rust_labels) >= 2 else "") + ", ".join(run_files) + ", distribution.png")
 
