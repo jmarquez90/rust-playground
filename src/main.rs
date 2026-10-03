@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::Instant;
 use rayon::prelude::*;
@@ -61,12 +62,15 @@ impl Index {
         }
 
         // 2. Index each file on its own. Step 2 makes this run in parallel.
+        let t = Instant::now();
         let doc_indexes = paths
             .par_iter()                         // was .iter()
             .map(|path| index_file(path))
             .collect::<std::io::Result<Vec<DocIndex>>>()?;
+        eprintln!("  per-file indexing: {:?}", t.elapsed());
 
         // 3. Merge the per-file indices into one.
+        let t = Instant::now();
         let mut index = Index {
             docs: Vec::new(),
             doc_lengths: Vec::new(),
@@ -80,6 +84,7 @@ impl Index {
                 inner_map.insert(doc_id, positions);
             }
         }
+        eprintln!("  merge: {:?}", t.elapsed());
         Ok(index)
 
     }
@@ -168,6 +173,36 @@ fn phrase_count(term_positions: &[&[usize]]) -> usize {
     count
 }
 
+
+// Dumps each word in the index and what document they're linked to using a BTreeMap
+// https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
+fn write_dump(index: &Index, path: &str) -> std::io::Result<()> {
+
+    // Open the file, buffered
+    let mut out = BufWriter::new(fs::File::create(path)?);
+
+    // 1. Collect the words and sort them.
+    let mut words: Vec<&String> = index.postings.keys().collect();
+    words.sort();
+
+    // 2. For each word, collect its doc ids and sort them by file name.
+    for word in words {
+        let by_doc = &index.postings[word];
+        let mut doc_ids: Vec<usize> = by_doc.keys().copied().collect();
+        doc_ids.sort_by(|a, b| index.docs[*a].cmp(&index.docs[*b]));
+
+        // 3. Write one line per (word, doc).
+        // write: word, index.docs[doc_id], and by_doc[&doc_id] as space-separated numbers
+        for doc_id in doc_ids {
+            let text = by_doc[&doc_id].iter().map(|p| p.to_string()).collect::<Vec<_>>().join(" ");
+            writeln!(out, "{}\t{}\t{}", word, index.docs[doc_id], text)?;
+        }
+    }
+    Ok(())
+}
+
+
+
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
@@ -187,6 +222,10 @@ fn main() -> std::io::Result<()> {
         start.elapsed(),
     );
 
+    if let Ok(path) = env::var("INDEX_DUMP") {
+        write_dump(&index, &path)?;
+    }
+
     if args[2] == "--phrase" {
         let phrase = args[3..].join(" ");
         for (count, name) in index.phrase_search(&phrase).iter().take(5) {
@@ -200,6 +239,7 @@ fn main() -> std::io::Result<()> {
     }
     Ok(())
 }
+
 
 #[cfg(test)]
 mod tests {
