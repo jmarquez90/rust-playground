@@ -117,6 +117,10 @@ impressions.
   them equally.
 - **Main measure:** build time from the program's own timer, excluding process start-up. Also
   recorded: wall time, CPU time of the whole process tree, threads, and peak memory.
+- **Search time (opt-in, `--query-bench`):** each Rust run also times a fixed set of 9 searches
+  (6 BM25 queries, 3 phrases): one warm-up pass, then 50 timed passes. Reported as the median,
+  across runs, of the average time per search. Off by default, because the searches add to each
+  run's wall and CPU time.
 - **Correctness:** before timing, every configuration writes its whole index in a fixed text form,
   and the dumps must be byte-identical or the run stops. Every run's document and word counts are
   checked too.
@@ -132,6 +136,7 @@ uv run --python 3.14 bench/run_bench.py snapshot <label> --note "what changed"  
 uv run --python 3.14 bench/run_bench.py snapshot <label> --features ahash --note "..."   # build with Cargo features
 uv run --python 3.14 bench/run_bench.py run --rust baseline --extra-python 3.14t --runs 1000 --name languages
 uv run --python 3.14 bench/run_bench.py run --no-python --rust-modes rayon --rust baseline,s0-phases,s1-profile --runs 1000 --name s1-profile
+uv run --python 3.14 bench/run_bench.py run --no-python --rust-modes rayon --rust s8-querytime,<new> --runs 1000 --query-bench --name <new>   # also time searches
 uv run --python 3.14 bench/analyze.py   # newest results file
 ```
 
@@ -170,44 +175,55 @@ the whole series measured together. A step that makes the build slower is revert
 before it. A step that compares alternatives gets its own, smaller experiment and its own table
 (see [Step 7](#step-7-hash-functions)).
 
-The table and charts come from the latest full-series experiment, `20261004-172204_s6-capacity`.
-Timings drift between experiments (this run's baseline: 189.1 ms; the one before: 195.8 ms), so
+The table and charts come from the latest full-series experiment, `20261004-182003_s8-querytime`.
+Timings drift between experiments (this run's baseline: 195.5 ms; the one before: 189.1 ms), so
 compare steps within one experiment, not across experiments.
 
 | Step | Snapshot | Change | Median build | vs previous step (95% CI) | Per-file indexing | Merge | Cores used | CPU time | Peak memory |
 |---|---|---|---|---|---|---|---|---|---|
-| — | `baseline` | Rust with rayon | 189.1 ms | — | — | — | 2.86 | 680 ms | 142 MB |
-| 0 | `s0-phases` | Phase timers and index dump (control) | 188.3 ms | −0.4% (−1.2% to +0.3%) | 112.9 ms | 74.9 ms | 2.86 | 678 ms | 142 MB |
-| 1 | `s1-profile` | Fat LTO, one codegen unit, `target-cpu=native` | 182.2 ms | −3.2% (−4.0% to −2.5%) | 112.0 ms | 69.9 ms | 2.85 | 657 ms | 142 MB |
-| 2 | `s2-mimalloc` | mimalloc allocator | 94.9 ms | −47.9% (−48.3% to −47.4%) | 59.6 ms | 35.0 ms | 8.63 | 945 ms | 291 MB |
-| 3 | `s3-borrow` | `&str` slices, lowercase each file once | 66.6 ms | −29.8% (−30.5% to −29.4%) | 41.2 ms | 25.1 ms | 7.70 | 608 ms | 217 MB |
-| 4 | `s4-u32pos` | u32 positions | 63.4 ms | −4.7% (−5.4% to −3.6%) | 37.1 ms | 26.2 ms | 7.54 | 564 ms | 213 MB |
-| 6 | `s6-capacity` | `with_capacity` for each file's word map, the merged map and the document lists | 59.1 ms | −6.8% (−7.9% to −6.0%) | 33.0 ms | 25.9 ms | 6.76 | 471 ms | 139 MB |
+| — | `baseline` | Rust with rayon | 195.5 ms | — | — | — | 2.83 | 698 ms | 142 MB |
+| 0 | `s0-phases` | Phase timers and index dump (control) | 196.0 ms | +0.3% (−0.7% to +1.2%) | 115.3 ms | 79.8 ms | 2.82 | 696 ms | 142 MB |
+| 1 | `s1-profile` | Fat LTO, one codegen unit, `target-cpu=native` | 187.6 ms | −4.3% (−5.1% to −3.4%) | 113.5 ms | 73.6 ms | 2.82 | 675 ms | 142 MB |
+| 2 | `s2-mimalloc` | mimalloc allocator | 98.2 ms | −47.6% (−48.1% to −47.2%) | 60.3 ms | 37.2 ms | 8.52 | 957 ms | 291 MB |
+| 3 | `s3-borrow` | `&str` slices, lowercase each file once | 68.6 ms | −30.2% (−30.7% to −29.4%) | 41.4 ms | 27.0 ms | 7.49 | 612 ms | 217 MB |
+| 4 | `s4-u32pos` | u32 positions | 65.7 ms | −4.3% (−5.2% to −3.4%) | 37.3 ms | 28.0 ms | 7.32 | 568 ms | 213 MB |
+| 6 | `s6-capacity` | `with_capacity` for each file's word map, the merged map and the document lists | 61.2 ms | −6.8% (−7.9% to −5.9%) | 33.4 ms | 27.7 ms | 6.59 | 475 ms | 139 MB |
+| 8 | `s8-querytime` | Search timing (`QUERY_BENCH`), measurement only (control) | 60.8 ms | −0.6% (−1.6% to +0.4%) | 33.3 ms | 27.2 ms | 6.52 | 479 ms* | 139 MB |
 
-So far: **3.2× faster than the baseline** (−69%) with the default hasher, as of step 6. Step 7's
+\* Includes the timed searches, which only step 8 runs; see below. Median search time: 3.76 µs per
+search (3.74 to 3.77).
+
+So far: **3.2× faster than the baseline** (−69%) with the default hasher, as of step 8. Step 7's
 FxHash option takes off roughly another fifth, for text you trust.
 
 - **The control matches the baseline** (the interval includes zero), so the timers cost nothing and
   the setup measures reliably.
 - **Allocation was the hidden bottleneck.** With the default allocator, rayon's threads mostly
   queued for memory; mimalloc's per-thread pools nearly halved the build and tripled the cores in
-  use. The costs: CPU time rose by 44% (more cores working at once, for half the wall time), and
+  use. The costs: CPU time rose by 42% (more cores working at once, for half the wall time), and
   peak memory roughly doubled (142 to 291 MB), because mimalloc keeps freed memory for reuse.
 - **Allocating less still paid off after mimalloc.** Slices instead of one `String` per word cut
   per-file indexing by 31%, CPU time by 36%, and peak memory by a quarter (291 to 217 MB). The merge
   also got faster, likely because the per-file maps now hold compactly allocated keys.
-- **u32 positions: a small, real gain** (−4.7%), all of it in per-file indexing (−10%; the merge
+- **u32 positions: a small, real gain** (−4.3%), all of it in per-file indexing (−10%; the merge
   didn't improve). Total CPU time fell another 7%. Peak memory fell only 4 MB of a possible ~10 MB,
   since mimalloc holds on to freed memory.
 - **Pre-sizing saved more memory than time.** The build got 6.8% faster, all in per-file indexing
-  (−11%); CPU time fell 17%. Peak memory fell by a third (213 to 139 MB), below the baseline's,
+  (−10%); CPU time fell 16%. Peak memory fell by a third (213 to 139 MB), below the baseline's,
   likely because each map is now allocated once: a map that grows allocates a bigger table and frees
   the old one, and mimalloc kept every outgrown table. Pre-sizing the merged map didn't speed up the
   merge, so its cost lies in the per-pair work rather than in the map growing.
-- **The merge is still the largest single-threaded piece** (about 26 of 59 ms).
+- **Timing searches costs the build nothing.** Step 8 adds code that runs only when `QUERY_BENCH` is
+  set, and builds as fast as step 6 (the interval includes zero), with both phases unchanged.
+- **The search baseline: 3.76 µs per search** (95% CI 3.74 to 3.77), averaged over the 9 searches.
+  This is the number the merge alternatives below are measured against.
+- **Only step 8 runs the searches,** so its wall time (73.2 against 71.8 ms) and CPU time include
+  about 1.7 ms of searching (51 passes of 9 searches). Compare wall and CPU time only between runs
+  with the same `--query-bench` setting.
+- **The merge is still the largest single-threaded piece** (about 27 of 61 ms).
 
-![Median build time per step](bench/results/20261004-172204_s6-capacity/steps.png)
-![Build time across runs, per step](bench/results/20261004-172204_s6-capacity/run_sequence_rust_rayon.png)
+![Median build time per step](bench/results/20261004-182003_s8-querytime/steps.png)
+![Build time across runs, per step](bench/results/20261004-182003_s8-querytime/run_sequence_rust_rayon.png)
 
 #### Step 7: hash functions
 
@@ -265,10 +281,18 @@ Each measured against the step before it, in its own experiment.
 
 **Remaining steps:**
 
-1. Query timing, as a measurement-only step like step 0, so later steps can be compared on search
-   speed too
-2. Two alternatives for the merge, each measured against the step before: a sharded parallel merge,
-   and segments (no merge; queries search each file's index, as Lucene and tantivy do)
+1. Step 9: three alternatives to the single-threaded merge, each measured against step 8 with
+   `--query-bench`, because they trade build time against search time:
+   - **Sharded merge:** each file splits its words into buckets by hash, then one rayon task per
+     bucket merges that bucket from every file. No locks and no new crate.
+   - **dashmap:** one shared concurrent map that every thread inserts into at once. The simplest
+     code; the internal locks may slow it under contention.
+   - **Segments:** no merge. Searches visit each file's index and combine the scores, as Lucene and
+     tantivy do. The cheapest build and probably the slowest searches.
+2. A flamegraph (a sampling profile of where build time goes), to check the explanations given so
+   far against measurements. The last step of this series.
+
+Then Series 3: this engine against tantivy, a Rust search library.
 
 ## Committing and pushing
 
