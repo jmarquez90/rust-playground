@@ -33,14 +33,18 @@ struct DocIndex {
 
 
 fn index_file(path: &Path) -> std::io::Result<DocIndex> {
-    let text = fs::read_to_string(path)?;
-    let words = tokenize(&text);
-    let len = words.len();
-    let mut postings: HashMap<String, Vec<usize>> = HashMap::new();
-    for (pos, word) in words.into_iter().enumerate() {
-        postings.entry(word).or_default().push(pos);
+    let text = fs::read_to_string(path)?.to_lowercase();
+    let mut len = 0;
+    let mut local: HashMap<&str, Vec<usize>> = HashMap::new();
+    let words = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
+
+    for (pos, word) in words.enumerate() {
+        local.entry(word).or_default().push(pos);
+        len = pos + 1;
     }
     let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    let postings: HashMap<String, Vec<usize>> =
+        local.into_iter().map(|(word, positions)| (word.to_string(), positions)).collect();
     Ok(DocIndex { name, len, postings })
 }
 

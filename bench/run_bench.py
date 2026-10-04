@@ -46,10 +46,13 @@ What one experiment does:
     memory across the process tree (sampled every 5 ms, so approximate, and memory shared
     between processes is counted in each of them).
   - threads (workers or rayon threads) and, for Python, whether the GIL was on.
-  How: the operating system reports CPU and peak memory for the process and every
-  descendant it waited for (wait4). Python's process pool (forkserver, the default on Linux
-  since 3.14) runs its workers under a helper process the main process never waits for, so
-  the runner also samples the process tree from /proc and keeps the larger of each figure.
+  How: CPU time comes from the operating system for the process and every descendant it
+  waited for (wait4). Python's process pool (forkserver, the default on Linux since 3.14) runs
+  its workers under a helper process the main process never waits for, so the runner also
+  samples the process tree from /proc and keeps the larger CPU figure. Memory comes only from
+  /proc (each process's VmHWM, its peak since it started its program, and current RSS for the
+  tree total): the operating system's own peak-memory figure (wait4's ru_maxrss) includes the
+  runner's memory, inherited when the child process is created, so it isn't used.
 - Checks every run's document and distinct-word counts, so a broken optimization shows up.
 - Shows a progress bar in an interactive terminal (runs done, round, elapsed, ETA). When output
   goes to a file (nohup, > log), the bar is off and a summary line is printed every 10 rounds.
@@ -362,6 +365,18 @@ class TreeSampler(threading.Thread):
             procs[int(name)] = (int(rest[1]), int(rest[11]) + int(rest[12]), int(rest[21]))
         return procs
 
+    @staticmethod
+    def hwm(pid):
+        """A process's peak resident memory since it started its current program (VmHWM), in bytes."""
+        try:
+            with open(f"/proc/{pid}/status", "rb") as f:
+                for line in f:
+                    if line.startswith(b"VmHWM:"):
+                        return int(line.split()[1]) * 1024
+        except OSError:
+            pass
+        return 0  # gone, or a zombie with no memory left
+
     def sample(self):
         procs = self.read_procs()
         children = defaultdict(list)
@@ -377,7 +392,7 @@ class TreeSampler(threading.Thread):
             return
         rss = [procs[p][2] * PAGE_BYTES for p in tree]
         self.peak_tree = max(self.peak_tree, sum(rss))
-        self.peak_single = max(self.peak_single, max(rss))
+        self.peak_single = max(self.peak_single, max(rss), max(self.hwm(p) for p in tree))
         for p in tree:
             self.cpu_ticks[p] = max(self.cpu_ticks.get(p, 0), procs[p][1])
         self.samples += 1
@@ -425,12 +440,14 @@ def run_once(config, extra_env=None):
     stderr = err[0].decode("utf-8", "replace") if err else ""
 
     cpu_wait4_ms = (usage.ru_utime + usage.ru_stime) * 1000
-    peak_rss_mb = max(usage.ru_maxrss / 1024, single_mb)  # ru_maxrss is in KiB on Linux
+    # Not usage.ru_maxrss: it counts the runner's own memory, copied into the child when it's created.
+    peak_rss_mb = single_mb if samples else float("nan")
     row = {
         "wall_ms": wall_ms, "exit_code": proc.returncode, "error": None,
         # Both CPU figures can only miss time, never add it, so the larger is the better estimate.
         "cpu_ms": max(cpu_wait4_ms, cpu_sampled_ms), "cpu_wait4_ms": cpu_wait4_ms, "cpu_sampled_ms": cpu_sampled_ms,
-        "peak_rss_mb": peak_rss_mb, "peak_tree_rss_mb": max(tree_mb, peak_rss_mb), "mem_samples": samples,
+        "peak_rss_mb": peak_rss_mb, "peak_tree_rss_mb": max(tree_mb, peak_rss_mb) if samples else float("nan"),
+        "mem_samples": samples,
     }
 
     # Timings and counts may be printed to either stream, so search both.
@@ -552,6 +569,7 @@ def cmd_run(args):
         "python": {"executable": sys.executable, "version": sys.version},
         "rustc": sh(["rustc", "--version"], cwd=REPO),
         "rust_snapshots": snaps, "git": git_state(), "machine": machine_info(), "corpus": corpus,
+        "memory_method": "proc-vmhwm",  # files without this recorded memory with the runner's own included
         "notes": ("build_ms = program's own timer (main metric). wall_ms = whole process from outside. "
                   "cpu_ms = user+system CPU of the process tree. peak_tree_rss_mb is sampled every "
                   f"{SAMPLE_SECONDS * 1000:.0f} ms."),

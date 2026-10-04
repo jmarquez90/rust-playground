@@ -369,6 +369,10 @@ def main():
     for lang, g in good.groupby("language"):
         print(f"  counts ({lang}): {g['docs'].iloc[0]} documents, {g['distinct_words'].iloc[0]} distinct words")
 
+    if meta.get("memory_method") != "proc-vmhwm":
+        # Earlier runner versions recorded peak memory that included the runner's own memory.
+        good = good.drop(columns=[c for c in ("peak_rss_mb", "peak_tree_rss_mb") if c in good.columns])
+        print("  peak memory not shown: this file was recorded before the runner measured it correctly")
     order, labels = config_order(good, meta)
     data = {c: good[good["config"] == c] for c in order}
     if args.reference:

@@ -1,0 +1,212 @@
+{
+  "experiment": "s3-borrow",
+  "created": "2026-10-04T00:28:01+00:00",
+  "seed": 1168726137,
+  "runs": 1000,
+  "warmup_rounds": 5,
+  "query": "whale",
+  "configs": [
+    {
+      "config": "rust/baseline/rayon",
+      "language": "rust",
+      "variant": "baseline",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/baseline/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s0-phases/rayon",
+      "language": "rust",
+      "variant": "s0-phases",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s0-phases/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s1-profile/rayon",
+      "language": "rust",
+      "variant": "s1-profile",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s1-profile/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s2-mimalloc/rayon",
+      "language": "rust",
+      "variant": "s2-mimalloc",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s2-mimalloc/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s3-borrow/rayon",
+      "language": "rust",
+      "variant": "s3-borrow",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s3-borrow/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null
+      },
+      "threads": 24
+    }
+  ],
+  "python": {
+    "executable": "/.jbdevcontainer/uv/environments-v2/run-bench-04c43c0828efcd81/bin/python",
+    "version": "3.14.8 (main, Oct  1 2026, 21:01:09) [Clang 22.1.3 ]"
+  },
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "rust_snapshots": [
+    {
+      "label": "baseline",
+      "created": "2026-10-02T22:53:41+00:00",
+      "note": null,
+      "git": {
+        "commit": "d9d8ced31b78ce19466932686bb5175015c0638e",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "1d4d96e4fed09fc85e28463aaf10706dc661ba561a45af727612add482bcdc0e",
+      "main_rs_sha256": "eb25f42977eb5983637569a3ceee7a5e7cb723c7d9461304415bb27d9481b86e",
+      "cargo_toml_sha256": "5e308d448791118e29fe8993ec09730cc008e43b61a326cd1a32d34abca29c9b"
+    },
+    {
+      "label": "s0-phases",
+      "created": "2026-10-03T18:42:55+00:00",
+      "note": "phase timings, index dump",
+      "git": {
+        "commit": "1b8534ba30fcfc8a3709d8a79411aa4c736563b9",
+        "dirty": true
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "7c5528566409c9ee1aad5e0fc7393074cede2650840fe3dbe9216a427315c7c2",
+      "main_rs_sha256": "5f7c7df152b6019e5e57029a90159199674b06e18062f51a54acb9012ae60d21",
+      "cargo_toml_sha256": "5e308d448791118e29fe8993ec09730cc008e43b61a326cd1a32d34abca29c9b"
+    },
+    {
+      "label": "s1-profile",
+      "created": "2026-10-03T18:57:30+00:00",
+      "note": "lto fat, codegen-units 1, target-cpu native",
+      "git": {
+        "commit": "2b5074da6ebd86ed97010defda390b899a73eea7",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "6889c3ee3a7c311a4f6ee0d530c262194426da4b3364eee53ff83a3013d9de9e",
+      "main_rs_sha256": "5f7c7df152b6019e5e57029a90159199674b06e18062f51a54acb9012ae60d21",
+      "cargo_toml_sha256": "9da211ea85df2c6df43998868d834d6bc3638c11c27c978c400ea44d26e95cf6"
+    },
+    {
+      "label": "s2-mimalloc",
+      "created": "2026-10-03T23:48:25+00:00",
+      "note": "mimalloc global allocator",
+      "git": {
+        "commit": "98c40332ad02b3714a37b875488a58c35aed59e6",
+        "dirty": true
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "c0791a7bd7598d3f2055d51c99a3fe65a4eac365e1d90cdbfe967c03003e601e",
+      "main_rs_sha256": "80aaa03751ac0c1a3119856e0eb02084fecb82b78c82bf5b9b2c6b1685125632",
+      "cargo_toml_sha256": "79e7d17693d521cc0e3cab84a8a1f6c1912e55d61a5886665b2eb916eaf8d17b"
+    },
+    {
+      "label": "s3-borrow",
+      "created": "2026-10-04T00:27:42+00:00",
+      "note": "&str slices, lowercase once",
+      "git": {
+        "commit": "aa6e011b61edbac8681ccc6d2328170edf0cd9ee",
+        "dirty": true
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "1205613a9f272a9d89316e6714a5073d049504aa96ec47c509337e6d79d87fa6",
+      "main_rs_sha256": "656fc4843c9dfbf436897ae5f9913df16a380568f8bca1497278f9bdb3b17ad3",
+      "cargo_toml_sha256": "79e7d17693d521cc0e3cab84a8a1f6c1912e55d61a5886665b2eb916eaf8d17b"
+    }
+  ],
+  "git": {
+    "commit": "aa6e011b61edbac8681ccc6d2328170edf0cd9ee",
+    "dirty": true
+  },
+  "machine": {
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "cpu_count": 24,
+    "cpus_available": 24,
+    "in_container": true,
+    "cpu_model": "AMD Ryzen 9 5900X 12-Core Processor",
+    "mem_total": "32816808 kB"
+  },
+  "corpus": {
+    "source": "/IdeaProjects/rust-playground/data",
+    "path": "/home/dev/bench-data",
+    "files": 21,
+    "bytes": 13378837,
+    "sha256": "5c2955aa9d4ae998cc5782ed22363e896ae8daa096b830327c7b5ed8a30682b1"
+  },
+  "notes": "build_ms = program's own timer (main metric). wall_ms = whole process from outside. cpu_ms = user+system CPU of the process tree. peak_tree_rss_mb is sampled every 5 ms.",
+  "verify": {
+    "identical": true,
+    "compared": 4,
+    "failed": 0,
+    "results": [
+      {
+        "config": "rust/baseline/rayon",
+        "error": null
+      },
+      {
+        "config": "rust/s0-phases/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s1-profile/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s2-mimalloc/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s3-borrow/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      }
+    ]
+  }
+}
