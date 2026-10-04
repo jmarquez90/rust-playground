@@ -1,11 +1,12 @@
-use mimalloc::MiMalloc;
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::Instant;
+use rayon::prelude::*;
+use mimalloc::MiMalloc;
+
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
@@ -14,16 +15,17 @@ static GLOBAL: MiMalloc = MiMalloc;
 const K1: f64 = 1.2; // how quickly repeated words stop adding to the score
 const B: f64 = 0.75; // how much long documents are penalized
 
+
 fn words(lowercased: &str) -> impl Iterator<Item = &str> {
-    lowercased
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
+    lowercased.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty())
 }
+
 
 // tokenize: split a query into lowercase words, exactly as the index does.
 fn tokenize(text: &str) -> Vec<String> {
     words(&text.to_lowercase()).map(|w| w.to_string()).collect()
 }
+
 
 struct DocIndex {
     name: String,
@@ -31,39 +33,33 @@ struct DocIndex {
     postings: HashMap<String, Vec<u32>>,
 }
 
+
 fn index_file(path: &Path) -> std::io::Result<DocIndex> {
     let text = fs::read_to_string(path)?.to_lowercase();
     let mut len = 0;
     let mut local: HashMap<&str, Vec<u32>> = HashMap::new();
     // let words = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
-
+    
     for (pos, word) in words(&text).enumerate() {
-        local
-            .entry(word)
-            .or_default()
-            .push(u32::try_from(pos).expect("over 4 billion words in one file"));
+        local.entry(word).or_default().push(u32::try_from(pos).expect("over 4 billion words in one file"));
         len = pos + 1;
     }
     let name = path.file_name().unwrap().to_string_lossy().into_owned();
-    let postings: HashMap<String, Vec<u32>> = local
-        .into_iter()
-        .map(|(word, positions)| (word.to_string(), positions))
-        .collect();
-    Ok(DocIndex {
-        name,
-        len,
-        postings,
-    })
+    let postings: HashMap<String, Vec<u32>> =
+        local.into_iter().map(|(word, positions)| (word.to_string(), positions)).collect();
+    Ok(DocIndex { name, len, postings })
 }
 
+
+
 struct Index {
-    docs: Vec<String>,                       // doc id -> file name
-    doc_lengths: Vec<usize>,                 // doc id -> word count
-    word_ids: HashMap<String, u32>,          // word -> word id
-    postings: Vec<HashMap<usize, Vec<u32>>>, // word -> (doc id -> positions)
+    docs: Vec<String>,                                     // doc id -> file name
+    doc_lengths: Vec<usize>,                               // doc id -> word count
+    postings: HashMap<String, HashMap<usize, Vec<u32>>>, // word -> (doc id -> positions)
 }
 
 impl Index {
+
     // Builds the index in parallel
     fn build(dir: &Path) -> std::io::Result<Index> {
         // 1. Collect the .txt files.
@@ -75,10 +71,10 @@ impl Index {
             }
         }
 
-        // 2. Index each file on its own, in parallel.
+        // 2. Index each file on its own. Step 2 makes this run in parallel.
         let t = Instant::now();
         let doc_indexes = paths
-            .par_iter() // was .iter()
+            .par_iter()                         // was .iter()
             .map(|path| index_file(path))
             .collect::<std::io::Result<Vec<DocIndex>>>()?;
         eprintln!("  per-file indexing: {:?}", t.elapsed());
@@ -88,22 +84,14 @@ impl Index {
         let mut index = Index {
             docs: Vec::new(),
             doc_lengths: Vec::new(),
-            word_ids: HashMap::new(),
-            postings: Vec::new(),
+            postings: HashMap::new(),
         };
-
         for (doc_id, doc) in doc_indexes.into_iter().enumerate() {
             index.docs.push(doc.name);
             index.doc_lengths.push(doc.len);
             for (word, positions) in doc.postings {
-                // The ID a new word would get: the next free slot in 'postings'
-                let next_id =
-                    u32::try_from(index.postings.len()).expect("over 4 billion distinct words");
-                let id = *index.word_ids.entry(word).or_insert(next_id);
-                if id == next_id {
-                    index.postings.push(HashMap::new());
-                }
-                index.postings[id as usize].insert(doc_id, positions);
+                let inner_map = index.postings.entry(word).or_default();
+                inner_map.insert(doc_id, positions);
             }
         }
         eprintln!("  merge: {:?}", t.elapsed());
@@ -117,18 +105,16 @@ impl Index {
         let mut scores: HashMap<usize, f64> = HashMap::new();
 
         for term in tokenize(query) {
-            let Some(&id) = self.word_ids.get(&term) else {
+            let Some(postings) = self.postings.get(&term) else {
                 continue;
             };
-            let postings = &self.postings[id as usize];
             let df = postings.len() as f64;
             let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
 
             for (&doc_id, positions) in postings {
                 let tf = positions.len() as f64;
                 let len_norm = 1.0 - B + B * self.doc_lengths[doc_id] as f64 / avg_len;
-                *scores.entry(doc_id).or_insert(0.0) +=
-                    idf * tf * (K1 + 1.0) / (tf + K1 * len_norm);
+                *scores.entry(doc_id).or_insert(0.0) += idf * tf * (K1 + 1.0) / (tf + K1 * len_norm);
             }
         }
         let mut ranked: Vec<(f64, &str)> = scores
@@ -144,10 +130,10 @@ impl Index {
         // 1. Look up every word's postings. If any word isn't indexed, nothing can match.
         let mut term_postings = Vec::new();
         for term in tokenize(phrase) {
-            let Some(&id) = self.word_ids.get(&term) else {
+            let Some(postings) = self.postings.get(&term) else {
                 return Vec::new();
             };
-            term_postings.push(&self.postings[id as usize]);
+            term_postings.push(postings);
         }
         let Some(first) = term_postings.first() else {
             return Vec::new(); // empty phrase
@@ -199,32 +185,31 @@ fn phrase_count(term_positions: &[&[u32]]) -> usize {
 // Dumps each word in the index and what document they're linked to using a BTreeMap
 // https://doc.rust-lang.org/std/collections/struct.BTreeMap.html
 fn write_dump(index: &Index, path: &str) -> std::io::Result<()> {
+
     // Open the file, buffered
     let mut out = BufWriter::new(fs::File::create(path)?);
 
     // 1. Collect the words and sort them.
-    let mut words: Vec<&String> = index.word_ids.keys().collect();
+    let mut words: Vec<&String> = index.postings.keys().collect();
     words.sort();
 
     // 2. For each word, collect its doc ids and sort them by file name.
     for word in words {
-        let by_doc = &index.postings[index.word_ids[word] as usize];
+        let by_doc = &index.postings[word];
         let mut doc_ids: Vec<usize> = by_doc.keys().copied().collect();
         doc_ids.sort_by(|a, b| index.docs[*a].cmp(&index.docs[*b]));
 
         // 3. Write one line per (word, doc).
         // write: word, index.docs[doc_id], and by_doc[&doc_id] as space-separated numbers
         for doc_id in doc_ids {
-            let text = by_doc[&doc_id]
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join(" ");
+            let text = by_doc[&doc_id].iter().map(|p| p.to_string()).collect::<Vec<_>>().join(" ");
             writeln!(out, "{}\t{}\t{}", word, index.docs[doc_id], text)?;
         }
     }
     Ok(())
 }
+
+
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -262,6 +247,7 @@ fn main() -> std::io::Result<()> {
     }
     Ok(())
 }
+
 
 #[cfg(test)]
 mod tests {
