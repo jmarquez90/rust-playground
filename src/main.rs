@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{BufWriter, Write};
@@ -7,7 +7,14 @@ use std::time::Instant;
 use rayon::prelude::*;
 use mimalloc::MiMalloc;
 
+#[cfg(not(any(feature = "ahash", feature = "rustc-hash")))]
+type HashBuilder = std::hash::RandomState;
+#[cfg(feature = "ahash")]
+type HashBuilder = ahash::RandomState;
+#[cfg(feature = "rustc-hash")]
+type HashBuilder = rustc_hash::FxBuildHasher;
 
+type HashMap<K, V> = std::collections::HashMap<K, V, HashBuilder>;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
@@ -38,7 +45,7 @@ fn index_file(path: &Path) -> std::io::Result<DocIndex> {
     let text = fs::read_to_string(path)?.to_lowercase();
     let mut len = 0;
     // About one distinct word per 64 bytes of text in this corpus (measured: 37 to 124).
-    let mut local: HashMap<&str, Vec<u32>> = HashMap::with_capacity(text.len() / 64);
+    let mut local: HashMap<&str, Vec<u32>> = HashMap::with_capacity_and_hasher(text.len() / 64, HashBuilder::default());
     
     for (pos, word) in words(&text).enumerate() {
         local.entry(word).or_default().push(u32::try_from(pos).expect("over 4 billion words in one file"));
@@ -86,7 +93,7 @@ impl Index {
         let mut index = Index {
             docs: Vec::with_capacity(doc_indexes.len()),
             doc_lengths: Vec::with_capacity(doc_indexes.len()),
-            postings: HashMap::with_capacity(largest * 2),
+            postings: HashMap::with_capacity_and_hasher(largest * 2, HashBuilder::default()),
         };
         for (doc_id, doc) in doc_indexes.into_iter().enumerate() {
             index.docs.push(doc.name);
@@ -104,7 +111,7 @@ impl Index {
     fn search(&self, query: &str) -> Vec<(f64, &str)> {
         let n = self.docs.len() as f64;
         let avg_len = self.doc_lengths.iter().sum::<usize>() as f64 / n.max(1.0);
-        let mut scores: HashMap<usize, f64> = HashMap::new();
+        let mut scores: HashMap<usize, f64> = HashMap::default();
 
         for term in tokenize(query) {
             let Some(postings) = self.postings.get(&term) else {
