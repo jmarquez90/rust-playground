@@ -21,8 +21,8 @@ Writes into bench/results/<file stem>/:
 - steps.csv: when there are two or more Rust snapshots, each one's change against the first
   snapshot and against the previous one, per mode, with 95% bootstrap intervals.
 - Query time, when snapshots print it (QUERY_BENCH): the median time per search query in µs
-  with a 95% interval (summary), and its change against the previous snapshot (steps). Columns
-  stay empty for snapshots that don't print it.
+  with a 95% interval (summary), and its change against the previous snapshot and against the
+  first snapshot (steps). Columns stay empty for snapshots that don't print it.
 - run_sequence*.png: build time against run number. Every configuration in a chart shares one
   y-axis (starting at 0) and has its own color, named in the key; Rust lines are dashed.
   - run_sequence.png, for a language comparison (Python plus one Rust snapshot, 8
@@ -173,13 +173,14 @@ def steps_table(summary, boots, qboots, labels):
                 base_med = summary.set_index("config").loc[base, "median_ms"]
                 row[f"{name}_pct"] = 100 * (med / base_med - 1)
                 row[f"{name}_ci_low"], row[f"{name}_ci_high"] = ci(change)
-            # Query time against the previous snapshot, when both print it.
+            # Query time against the previous and the first snapshot, when both print it.
             row["query_median_us"] = summary.set_index("config").loc[c, "query_median_us"]
-            row["query_vs_previous_pct"] = row["query_vs_previous_ci_low"] = row["query_vs_previous_ci_high"] = float("nan")
-            if c in qboots and prev in qboots and prev != c:
-                prev_q = summary.set_index("config").loc[prev, "query_median_us"]
-                row["query_vs_previous_pct"] = 100 * (row["query_median_us"] / prev_q - 1)
-                row["query_vs_previous_ci_low"], row["query_vs_previous_ci_high"] = ci(100 * (qboots[c] / qboots[prev] - 1))
+            for name, base in (("query_vs_previous", prev), ("query_vs_first", first)):
+                row[f"{name}_pct"] = row[f"{name}_ci_low"] = row[f"{name}_ci_high"] = float("nan")
+                if c in qboots and base in qboots and base != c:
+                    base_q = summary.set_index("config").loc[base, "query_median_us"]
+                    row[f"{name}_pct"] = 100 * (row["query_median_us"] / base_q - 1)
+                    row[f"{name}_ci_low"], row[f"{name}_ci_high"] = ci(100 * (qboots[c] / qboots[base] - 1))
             rows.append(row)
     return pd.DataFrame(rows)
 
@@ -442,7 +443,8 @@ def main():
         scols = ["mode", "snapshot", "median_ms", "vs_previous_pct", "vs_previous_ci_low", "vs_previous_ci_high",
                  "vs_first_pct", "vs_first_ci_low", "vs_first_ci_high"]
         if has_query:
-            scols += ["query_median_us", "query_vs_previous_pct", "query_vs_previous_ci_low", "query_vs_previous_ci_high"]
+            scols += ["query_median_us", "query_vs_previous_pct", "query_vs_previous_ci_low", "query_vs_previous_ci_high",
+                      "query_vs_first_pct", "query_vs_first_ci_low", "query_vs_first_ci_high"]
         sfmt = {c: "{:+.1f}%" for c in scols} | {"mode": "{}", "snapshot": "{}", "median_ms": "{:,.1f}",
                                                  "query_median_us": "{:,.2f}"}
         md += ["", "## Rust snapshots", "", to_markdown(steps, scols, sfmt).replace("| nan ", "|  ").replace("| +nan% ", "|  ")]
