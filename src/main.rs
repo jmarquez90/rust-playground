@@ -28,22 +28,22 @@ fn tokenize(text: &str) -> Vec<String> {
 struct DocIndex {
     name: String,
     len: usize,
-    postings: HashMap<String, Vec<usize>>,
+    postings: HashMap<String, Vec<u32>>,
 }
 
 
 fn index_file(path: &Path) -> std::io::Result<DocIndex> {
     let text = fs::read_to_string(path)?.to_lowercase();
     let mut len = 0;
-    let mut local: HashMap<&str, Vec<usize>> = HashMap::new();
+    let mut local: HashMap<&str, Vec<u32>> = HashMap::new();
     let words = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
 
     for (pos, word) in words.enumerate() {
-        local.entry(word).or_default().push(pos);
+        local.entry(word).or_default().push(u32::try_from(pos).expect("over 4 billion words in one file"));
         len = pos + 1;
     }
     let name = path.file_name().unwrap().to_string_lossy().into_owned();
-    let postings: HashMap<String, Vec<usize>> =
+    let postings: HashMap<String, Vec<u32>> =
         local.into_iter().map(|(word, positions)| (word.to_string(), positions)).collect();
     Ok(DocIndex { name, len, postings })
 }
@@ -53,7 +53,7 @@ fn index_file(path: &Path) -> std::io::Result<DocIndex> {
 struct Index {
     docs: Vec<String>,                                     // doc id -> file name
     doc_lengths: Vec<usize>,                               // doc id -> word count
-    postings: HashMap<String, HashMap<usize, Vec<usize>>>, // word -> (doc id -> positions)
+    postings: HashMap<String, HashMap<usize, Vec<u32>>>, // word -> (doc id -> positions)
 }
 
 impl Index {
@@ -140,7 +140,7 @@ impl Index {
         // 2. For each document containing the first word, count the phrase there.
         let mut results: Vec<(usize, &str)> = Vec::new();
         'docs: for &doc_id in first.keys() {
-            let mut lists: Vec<&[usize]> = Vec::new();
+            let mut lists: Vec<&[u32]> = Vec::new();
             for postings in &term_postings {
                 let Some(positions) = postings.get(&doc_id) else {
                     continue 'docs;
@@ -159,7 +159,7 @@ impl Index {
 
 // How many times do the terms appear consecutively? term_positions[i] holds the
 // sorted positions of the i-th query word in one document.
-fn phrase_count(term_positions: &[&[usize]]) -> usize {
+fn phrase_count(term_positions: &[&[u32]]) -> usize {
     let Some((start, remainder)) = term_positions.split_first() else {
         return 0;
     };
@@ -168,7 +168,7 @@ fn phrase_count(term_positions: &[&[usize]]) -> usize {
     for &p in start.iter() {
         let mut all_found = true;
         for (i, pos) in remainder.iter().enumerate() {
-            if !pos.contains(&(p + i + 1)) {
+            if !pos.contains(&(p + i as u32 + 1)) {
                 all_found = false;
                 break;
             }
