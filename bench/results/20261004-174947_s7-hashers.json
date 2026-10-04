@@ -1,0 +1,149 @@
+{
+  "experiment": "s7-hashers",
+  "created": "2026-10-04T17:49:47+00:00",
+  "seed": 2917477925,
+  "runs": 1000,
+  "warmup_rounds": 5,
+  "query": "whale",
+  "configs": [
+    {
+      "config": "rust/s6-capacity/rayon",
+      "language": "rust",
+      "variant": "s6-capacity",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s6-capacity/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s7-ahash/rayon",
+      "language": "rust",
+      "variant": "s7-ahash",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s7-ahash/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s7-fxhash/rayon",
+      "language": "rust",
+      "variant": "s7-fxhash",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s7-fxhash/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null
+      },
+      "threads": 24
+    }
+  ],
+  "python": {
+    "executable": "/.jbdevcontainer/uv/environments-v2/run-bench-04c43c0828efcd81/bin/python",
+    "version": "3.14.8 (main, Oct  1 2026, 21:01:09) [Clang 22.1.3 ]"
+  },
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "rust_snapshots": [
+    {
+      "label": "s6-capacity",
+      "created": "2026-10-04T17:21:57+00:00",
+      "note": "with_capacity: per-file map, merge map, doc vectors",
+      "git": {
+        "commit": "eb2f126640e8d88870279c00f7485756a5e93a66",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "138fcc1d1a25d0840fe9c8fc0af51cbaf1d11628d9037872318fa0077f042d81",
+      "main_rs_sha256": "b250196cfbfa17b7dbe334924c6db03f20e9aa35b2caf989b97d27de362bbffb",
+      "cargo_toml_sha256": "79e7d17693d521cc0e3cab84a8a1f6c1912e55d61a5886665b2eb916eaf8d17b"
+    },
+    {
+      "label": "s7-ahash",
+      "created": "2026-10-04T17:49:26+00:00",
+      "note": "aHash for all maps",
+      "features": "ahash",
+      "git": {
+        "commit": "f445db8d4be2b7d3360743c7b80cc572a3d5ef07",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "bdd3dbd1f65c1616abf9a07163e87b98abc5407d6d7b8b1df0e7ad7ef166c88d",
+      "main_rs_sha256": "902ad12bf6a8cf24365c1d83b987a249fb5c05f98f968de8adf57782fd4e3579",
+      "cargo_toml_sha256": "23205ef7ac80f4071efe7b7e8fe4066577f27eb606fe6a3a8599b0297c2c0eba"
+    },
+    {
+      "label": "s7-fxhash",
+      "created": "2026-10-04T17:49:39+00:00",
+      "note": "FxHash for all maps",
+      "features": "rustc-hash",
+      "git": {
+        "commit": "f445db8d4be2b7d3360743c7b80cc572a3d5ef07",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "d275b6f2ec27c6255ae9b14c4741de4367c99217e7a26852eb2259507dbf1261",
+      "main_rs_sha256": "902ad12bf6a8cf24365c1d83b987a249fb5c05f98f968de8adf57782fd4e3579",
+      "cargo_toml_sha256": "23205ef7ac80f4071efe7b7e8fe4066577f27eb606fe6a3a8599b0297c2c0eba"
+    }
+  ],
+  "git": {
+    "commit": "f445db8d4be2b7d3360743c7b80cc572a3d5ef07",
+    "dirty": false
+  },
+  "machine": {
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "cpu_count": 24,
+    "cpus_available": 24,
+    "in_container": true,
+    "cpu_model": "AMD Ryzen 9 5900X 12-Core Processor",
+    "mem_total": "32816800 kB"
+  },
+  "corpus": {
+    "source": "/IdeaProjects/rust-playground/data",
+    "path": "/home/dev/bench-data",
+    "files": 21,
+    "bytes": 13378837,
+    "sha256": "5c2955aa9d4ae998cc5782ed22363e896ae8daa096b830327c7b5ed8a30682b1"
+  },
+  "memory_method": "proc-vmhwm",
+  "notes": "build_ms = program's own timer (main metric). wall_ms = whole process from outside. cpu_ms = user+system CPU of the process tree. peak_tree_rss_mb is sampled every 5 ms.",
+  "verify": {
+    "identical": true,
+    "compared": 3,
+    "failed": 0,
+    "results": [
+      {
+        "config": "rust/s6-capacity/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s7-ahash/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s7-fxhash/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      }
+    ]
+  }
+}

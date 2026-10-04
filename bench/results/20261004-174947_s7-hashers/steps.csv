@@ -1,0 +1,4 @@
+mode,snapshot,config,median_ms,vs_first_pct,vs_first_ci_low,vs_first_ci_high,vs_previous_pct,vs_previous_ci_low,vs_previous_ci_high
+rayon,s6-capacity,rust/s6-capacity/rayon,57.1346845,0.0,0.0,0.0,0.0,0.0,0.0
+rayon,s7-ahash,rust/s7-ahash/rayon,52.7905285,-7.603360442114626,-8.448197125621176,-6.796482496738073,-7.603360442114626,-8.448197125621176,-6.796482496738073
+rayon,s7-fxhash,rust/s7-fxhash/rayon,44.984688,-21.26553529844031,-21.955993948046974,-20.680360345777014,-14.786441283685958,-15.581708269400368,-14.104424383786709
