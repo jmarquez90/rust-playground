@@ -1,7 +1,6 @@
 // use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::hash::BuildHasher;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -23,11 +22,6 @@ static GLOBAL: MiMalloc = MiMalloc;
 const K1: f64 = 1.2; // how quickly repeated words stop adding to the score
 const B: f64 = 0.75; // how much long documents are penalized
 
-// The merged index is split into this many shards, merged in parallel.
-const SHARDS: usize = 32;
-type Shard = HashMap<String, HashMap<usize, Vec<u32>>>; // word -> (doc id -> positions)
-type Bucket = Vec<(String, Vec<u32>)>;                  // one file's (word, positions) pairs for one shard
-
 // Queries for timing search speed, run when QUERY_BENCH=<repetitions> is set.
 // No phrases of very common words ("of the"): phrase_count's linear scan makes those take milliseconds.
 const BENCH_SEARCHES: [&str; 6] = ["whale", "harpoon", "the", "elizabeth darcy", "white whale harpoon", "sea ship captain boat"];
@@ -38,13 +32,6 @@ const BENCH_PHRASES: [&str; 3] = ["white whale", "captain ahab", "mr darcy"];
 
 fn words(lowercased: &str) -> impl Iterator<Item = &str> {
     lowercased.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty())
-}
-
-
-// Which shard a word belongs to. Uses the hash's high bits: each shard's own map
-// places keys by the low bits, which would all be alike within a shard.
-fn shard_of(hasher: &HashBuilder, word: &str) -> usize {
-    (hasher.hash_one(word) >> 32) as usize % SHARDS
 }
 
 
@@ -82,8 +69,7 @@ fn index_file(path: &Path) -> std::io::Result<DocIndex> {
 struct Index {
     docs: Vec<String>,                                     // doc id -> file name
     doc_lengths: Vec<usize>,                               // doc id -> word count
-    hasher: HashBuilder,                                   // picks each word's shard
-    postings: Vec<Shard>,                                  // shard -> word -> (doc id -> positions)
+    postings: HashMap<String, HashMap<usize, Vec<u32>>>, // word -> (doc id -> positions)
 }
 
 impl Index {
@@ -107,66 +93,26 @@ impl Index {
             .collect::<std::io::Result<Vec<DocIndex>>>()?;
         eprintln!("  per-file indexing: {:?}", t.elapsed());
 
-                // 3. Merge the per-file indices, sharded: no two threads ever touch the same word.
+        // 3. Merge the per-file indices into one.
         let t = Instant::now();
         // Distinct words overall: at least the largest file's count, at most the sum. Guess twice the largest.
         let largest = doc_indexes.iter().map(|d| d.postings.len()).max().unwrap_or(0);
-        let hasher = HashBuilder::default();
-        let mut docs = Vec::with_capacity(doc_indexes.len());
-        let mut doc_lengths = Vec::with_capacity(doc_indexes.len());
-        let mut file_postings = Vec::with_capacity(doc_indexes.len());
-        for doc in doc_indexes {
-            docs.push(doc.name);
-            doc_lengths.push(doc.len);
-            file_postings.push(doc.postings);
-        }
-
-        // 3a. Each file, in parallel: sort its words into one bucket per shard.
-        let file_buckets: Vec<Vec<Bucket>> = file_postings
-            .into_par_iter()
-            .map(|file| {
-                let mut buckets: Vec<Bucket> = (0..SHARDS).map(|_| Vec::new()).collect();
-                for (word, positions) in file {
-                    buckets[shard_of(&hasher, &word)].push((word, positions));
-                }
-                buckets
-            })
-            .collect();
-
-        // 3b. Regroup by shard: shard -> one bucket per file, in file order (moves, no copying).
-        let mut shard_buckets: Vec<Vec<Bucket>> = (0..SHARDS).map(|_| Vec::with_capacity(docs.len())).collect();
-        for buckets in file_buckets {
-            for (shard, bucket) in buckets.into_iter().enumerate() {
-                shard_buckets[shard].push(bucket);
+        let mut index = Index {
+            docs: Vec::with_capacity(doc_indexes.len()),
+            doc_lengths: Vec::with_capacity(doc_indexes.len()),
+            postings: HashMap::with_capacity_and_hasher(largest * 2, HashBuilder::default()),
+        };
+        for (doc_id, doc) in doc_indexes.into_iter().enumerate() {
+            index.docs.push(doc.name);
+            index.doc_lengths.push(doc.len);
+            for (word, positions) in doc.postings {
+                let inner_map = index.postings.entry(word).or_default();
+                inner_map.insert(doc_id, positions);
             }
         }
-
-        // 3c. Each shard, in parallel: merge its buckets from every file, exactly as before.
-        let postings: Vec<Shard> = shard_buckets
-            .into_par_iter()
-            .map(|buckets| {
-                let mut merged: Shard = HashMap::with_capacity_and_hasher(largest * 2 / SHARDS, HashBuilder::default());
-                for (doc_id, bucket) in buckets.into_iter().enumerate() {
-                    for (word, positions) in bucket {
-                        merged.entry(word).or_default().insert(doc_id, positions);
-                    }
-                }
-                merged
-            })
-            .collect();
         eprintln!("  merge: {:?}", t.elapsed());
-        Ok(Index { docs, doc_lengths, hasher, postings })
+        Ok(index)
     }
-
-    // A word's postings, looked up in its shard.
-    fn postings_for(&self, word: &str) -> Option<&HashMap<usize, Vec<u32>>> {
-        self.postings[shard_of(&self.hasher, word)].get(word)
-    }
-
-    fn distinct_words(&self) -> usize {
-        self.postings.iter().map(|shard| shard.len()).sum()
-    }
-
 
     // Rank documents with BM25 (k1 = 1.2, b = 0.75).
     fn search(&self, query: &str) -> Vec<(f64, &str)> {
@@ -175,7 +121,7 @@ impl Index {
         let mut scores: HashMap<usize, f64> = HashMap::default();
 
         for term in tokenize(query) {
-            let Some(postings) = self.postings_for(&term) else {
+            let Some(postings) = self.postings.get(&term) else {
                 continue;
             };
             let df = postings.len() as f64;
@@ -200,7 +146,7 @@ impl Index {
         // 1. Look up every word's postings. If any word isn't indexed, nothing can match.
         let mut term_postings = Vec::new();
         for term in tokenize(phrase) {
-            let Some(postings) = self.postings_for(&term) else {
+            let Some(postings) = self.postings.get(&term) else {
                 return Vec::new();
             };
             term_postings.push(postings);
@@ -260,12 +206,12 @@ fn write_dump(index: &Index, path: &str) -> std::io::Result<()> {
     let mut out = BufWriter::new(fs::File::create(path)?);
 
     // 1. Collect the words and sort them.
-    let mut words: Vec<&String> = index.postings.iter().flat_map(|shard| shard.keys()).collect();
+    let mut words: Vec<&String> = index.postings.keys().collect();
     words.sort();
 
     // 2. For each word, collect its doc ids and sort them by file name.
     for word in words {
-        let by_doc = index.postings_for(word).unwrap();
+        let by_doc = &index.postings[word];
         let mut doc_ids: Vec<usize> = by_doc.keys().copied().collect();
         doc_ids.sort_by(|a, b| index.docs[*a].cmp(&index.docs[*b]));
 
@@ -317,7 +263,7 @@ fn main() -> std::io::Result<()> {
     println!(
         "{} documents, {} distinct words, indexed in {:?}",
         index.docs.len(),
-        index.distinct_words(),
+        index.postings.len(),
         start.elapsed(),
     );
 
