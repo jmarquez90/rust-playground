@@ -173,7 +173,7 @@ each experiment re-runs every earlier step alongside the new one, so the latest 
 the whole series measured together. A step that makes the build slower is reverted: it moves to
 [Tried and reverted](#tried-and-reverted) with its results, and the next step builds on the one
 before it. A step that compares alternatives gets its own, smaller experiment and its own table
-(see [Step 7](#step-7-hash-functions)).
+(see [Step 7](#step-7-hash-functions) and [Step 9](#step-9-the-merge)).
 
 The table and charts come from the latest full-series experiment, `20261004-182003_s8-querytime`.
 Timings drift between experiments (this run's baseline: 195.5 ms; the one before: 189.1 ms), so
@@ -193,8 +193,10 @@ compare steps within one experiment, not across experiments.
 \* Includes the timed searches, which only step 8 runs; see below. Median search time: 3.76 µs per
 search (3.74 to 3.77).
 
-So far: **3.2× faster than the baseline** (−69%) with the default hasher, as of step 8. Step 7's
-FxHash option takes off roughly another fifth, for text you trust.
+So far: **3.2× faster than the baseline** (−69%) with the default hasher, as of step 8. Step 9's
+segments build another 43% faster than step 8, measured in their own experiment; the next
+full-series experiment will measure the total. Step 7's FxHash option takes off roughly another
+fifth, for text you trust.
 
 - **The control matches the baseline** (the interval includes zero), so the timers cost nothing and
   the setup measures reliably.
@@ -261,6 +263,47 @@ cargo build --release --features rustc-hash   # FxHash
 ![Build time across runs, per hasher](bench/results/20261004-174947_s7-hashers/run_sequence_rust_rayon.png)
 ![Build time per hasher](bench/results/20261004-174947_s7-hashers/distribution.png)
 
+#### Step 9: the merge
+
+After step 8, the merge was the largest single-threaded phase. Step 9 measured three alternatives
+in one experiment, `20261004-193448_s9-merge`, against step 8 itself. Each alternative is step 8
+plus one change. All four ran with `--query-bench`, because the alternatives trade build time
+against search time.
+
+| Alternative | Snapshot | How it works | Median build | vs step 8 (95% CI) | Per-file indexing | Merge | Search | vs step 8 (95% CI) | CPU time | Peak memory |
+|---|---|---|---|---|---|---|---|---|---|---|
+| One thread merges (step 8) | `s8-querytime` | Every file's words go into one map, one file after another | 57.4 ms | — | 33.0 ms | 24.4 ms | 3.74 µs | — | 472 ms | 139 MB |
+| dashmap | `s9-dashmap` | One shared map (the `dashmap` crate) that all files insert into at once; a lock per shard of the map | 43.3 ms | −24.6% (−25.2% to −24.1%) | 32.7 ms | 10.4 ms | 3.76 µs | +0.6% (+0.1% to +1.1%) | 537 ms | 141 MB |
+| Sharded | `s9-sharded` | Words split into 32 shards by hash; one task per shard merges that shard from every file; no locks | 43.8 ms | −23.8% (−24.4% to −23.3%) | 32.7 ms | 10.7 ms | 3.95 µs | +5.6% (+5.0% to +6.1%) | 595 ms | 171 MB |
+| **Segments (adopted)** | `s9-segments` | No merge: each file's index is kept as a segment, and searches ask every segment | 32.8 ms | −42.8% (−43.3% to −42.4%) | 32.7 ms | — | 4.33 µs | +16.0% (+15.5% to +16.7%) | 451 ms | 135 MB |
+
+CPU time and peak memory include the timed searches, which all four configurations ran. Code:
+commits `6d0fb95` (dashmap) and `76ec7ff` (sharded), each reverted in the commit after it, and
+`92fbb79` (segments), reverted for the experiment and applied again afterwards.
+
+- **Both parallel merges cut the merge to the same ~10.5 ms**, 2.3× faster rather than anything near
+  24×. Likely cause: the largest book again. dashmap inserts file by file, and sharded's first pass
+  splits words file by file, so neither finishes before the biggest file's work does.
+- **dashmap edged out sharded, although sharded takes no locks.** With 21 writers spread over about
+  128 shards, dashmap's locks were rarely contested. Sharded hashes every word twice (once to pick
+  its shard, once in the shard's own map), first moves all 165,216 (word, positions) pairs into
+  buckets, and used 26% more CPU time than step 8 (dashmap: 14%) and 32 MB more memory. The double
+  hash also slows its searches.
+- **Segments build fastest because they skip the merge** (−43%). Searches cost 0.59 µs more (+16%):
+  each search word is looked up in all 21 segments instead of once, which is a small part of a
+  search's time. That cost grows with the number of segments, which is why Lucene and tantivy merge
+  small segments into larger ones in the background.
+- **Why segments:** they save 24.6 ms per build against step 8, and 10.4 ms against dashmap, for
+  0.6 µs per search; against dashmap they break even at about 18,000 searches per build. They're
+  also tantivy's design, so Series 3 compares implementations rather than designs. `s9-dashmap`
+  stays in those comparisons as the merged-index reference.
+- **Counting distinct words now takes a merged pass** over every segment's words. The program
+  counts them after the build timer stops: the count is a correctness check, not part of building.
+- **Per-file indexing is now the whole build** (about 33 ms), so that's what the flamegraph profiles.
+
+![Build time across runs, step 8 and the merge alternatives](bench/results/20261004-193448_s9-merge/run_sequence_rust_rayon.png)
+![Build time per merge alternative](bench/results/20261004-193448_s9-merge/distribution.png)
+
 #### Tried and reverted
 
 Each measured against the step before it, in its own experiment.
@@ -281,18 +324,11 @@ Each measured against the step before it, in its own experiment.
 
 **Remaining steps:**
 
-1. Step 9: three alternatives to the single-threaded merge, each measured against step 8 with
-   `--query-bench`, because they trade build time against search time:
-   - **Sharded merge:** each file splits its words into buckets by hash, then one rayon task per
-     bucket merges that bucket from every file. No locks and no new crate.
-   - **dashmap:** one shared concurrent map that every thread inserts into at once. The simplest
-     code; the internal locks may slow it under contention.
-   - **Segments:** no merge. Searches visit each file's index and combine the scores, as Lucene and
-     tantivy do. The cheapest build and probably the slowest searches.
-2. A flamegraph (a sampling profile of where build time goes), to check the explanations given so
+1. A flamegraph (a sampling profile of where build time goes), to check the explanations given so
    far against measurements. The last step of this series.
 
-Then Series 3: this engine against tantivy, a Rust search library.
+Then Series 3: this engine against tantivy, a Rust search library built on segments, with
+`s9-dashmap` as the merged-index reference.
 
 ## Committing and pushing
 
