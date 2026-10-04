@@ -164,44 +164,67 @@ rayon uses.
 
 Rust with rayon is the baseline. Each step is one snapshot, built on all the steps before it, and
 each experiment re-runs every earlier step alongside the new one, so the latest experiment holds
-the whole series measured together. The table and charts come from the latest experiment,
-`20261004-010152_s4-u32pos`, the first with correct peak memory for every snapshot.
+the whole series measured together. A step that makes the build slower is reverted: it moves to
+[Tried and reverted](#tried-and-reverted) with its results, and the next step builds on the one
+before it.
+
+The table and charts come from the latest experiment, `20261004-163351_s5-wordids`. Every
+configuration ran about 7% slower than in the experiment before it, the baseline included (195.8
+against 183.5 ms), so compare steps within one experiment, not across experiments.
 
 | Step | Snapshot | Change | Median build | vs previous step (95% CI) | Per-file indexing | Merge | Cores used | CPU time | Peak memory |
 |---|---|---|---|---|---|---|---|---|---|
-| — | `baseline` | Rust with rayon | 183.5 ms | — | — | — | 2.87 | 665 ms | 141 MB |
-| 0 | `s0-phases` | Phase timers and index dump (control) | 185.1 ms | +0.9% (−0.2% to +1.8%) | 112.9 ms | 71.7 ms | 2.87 | 668 ms | 141 MB |
-| 1 | `s1-profile` | Fat LTO, one codegen unit, `target-cpu=native` | 177.9 ms | −3.9% (−4.7% to −2.9%) | 111.6 ms | 66.2 ms | 2.86 | 646 ms | 142 MB |
-| 2 | `s2-mimalloc` | mimalloc allocator | 93.6 ms | −47.4% (−47.9% to −47.0%) | 58.3 ms | 35.4 ms | 8.47 | 922 ms | 291 MB |
-| 3 | `s3-borrow` | `&str` slices, lowercase each file once | 65.3 ms | −30.2% (−31.0% to −29.6%) | 40.3 ms | 24.9 ms | 7.55 | 592 ms | 217 MB |
-| 4 | `s4-u32pos` | u32 positions | 62.8 ms | −3.8% (−4.8% to −2.6%) | 36.5 ms | 26.3 ms | 7.40 | 554 ms | 213 MB |
+| — | `baseline` | Rust with rayon | 195.8 ms | — | — | — | 2.83 | 700 ms | 142 MB |
+| 0 | `s0-phases` | Phase timers and index dump (control) | 196.7 ms | +0.5% (−0.3% to +1.2%) | 116.1 ms | 79.9 ms | 2.83 | 701 ms | 142 MB |
+| 1 | `s1-profile` | Fat LTO, one codegen unit, `target-cpu=native` | 189.2 ms | −3.8% (−4.6% to −3.1%) | 115.1 ms | 74.3 ms | 2.82 | 680 ms | 142 MB |
+| 2 | `s2-mimalloc` | mimalloc allocator | 100.1 ms | −47.1% (−47.6% to −46.6%) | 60.9 ms | 38.9 ms | 8.40 | 968 ms | 291 MB |
+| 3 | `s3-borrow` | `&str` slices, lowercase each file once | 70.7 ms | −29.4% (−30.0% to −28.6%) | 42.3 ms | 28.3 ms | 7.40 | 624 ms | 217 MB |
+| 4 | `s4-u32pos` | u32 positions | 67.6 ms | −4.4% (−5.3% to −3.5%) | 37.9 ms | 29.7 ms | 7.20 | 578 ms | 211 MB |
 
-So far: **2.9× faster than the baseline** (−66%).
+So far: **2.9× faster than the baseline** (−65%), as of step 4.
 
 - **The control matches the baseline** (the interval includes zero), so the timers cost nothing and
   the setup measures reliably.
 - **Allocation was the hidden bottleneck.** With the default allocator, rayon's threads mostly
   queued for memory; mimalloc's per-thread pools nearly halved the build and tripled the cores in
-  use. The costs: CPU time rose by 43% (more cores working at once, for half the wall time), and
+  use. The costs: CPU time rose by 42% (more cores working at once, for half the wall time), and
   peak memory roughly doubled (142 to 291 MB), because mimalloc keeps freed memory for reuse.
 - **Allocating less still paid off after mimalloc.** Slices instead of one `String` per word cut
-  per-file indexing by 31%, CPU time by 36%, and peak memory by a quarter (291 to 217 MB). The merge
+  per-file indexing by 30%, CPU time by 36%, and peak memory by a quarter (291 to 217 MB). The merge
   also got faster, likely because the per-file maps now hold compactly allocated keys.
-- **u32 positions: a small, real gain** (−3.8%), all in per-file indexing (−9%); total CPU time fell
-  another 6%. Peak memory fell only 4 MB of a possible ~10 MB, since mimalloc holds on to freed memory.
-- **The merge is still the largest single-threaded piece** (about 26 of 63 ms).
+- **u32 positions: a small, real gain** (−4.4%), all of it in per-file indexing (−10%; the merge
+  didn't improve). Total CPU time fell another 7%. Peak memory fell only 6 MB of a possible ~10 MB,
+  since mimalloc holds on to freed memory.
+- **The merge is still the largest single-threaded piece** (about 30 of 68 ms).
 
-![Median build time per step](bench/results/20261004-010152_s4-u32pos/steps.png)
-![Build time across runs, per step](bench/results/20261004-010152_s4-u32pos/run_sequence_rust_rayon.png)
+The charts include step 5, which was reverted (see below).
+
+![Median build time per step](bench/results/20261004-163351_s5-wordids/steps.png)
+![Build time across runs, per step](bench/results/20261004-163351_s5-wordids/run_sequence_rust_rayon.png)
+
+#### Tried and reverted
+
+Measured in the same experiment as the steps above, against the step before it.
+
+| Step | Snapshot | Change | Median build | vs step 4 (95% CI) | Per-file indexing | Merge | CPU time | Peak memory | Code |
+|---|---|---|---|---|---|---|---|---|---|
+| 5 | `s5-wordids` | u32 word IDs: each word maps to a number, and postings live in a `Vec` indexed by it | 69.3 ms | +2.5% (+1.3% to +3.6%) | 37.9 ms | 31.0 ms | 579 ms | 213 MB | commit `f1f58e6`, reverted in the commit after it |
+
+- **u32 word IDs made the build slower** (+2.5%). Per-file indexing didn't change; the merge took
+  1.3 ms longer. The IDs removed no work: the merge still hashes every word as a `String`, then
+  takes an extra jump to `postings[id]` to reach the word's map. That's probably a cache miss for
+  each of the ~165,000 (word, document) pairs, about 8 ns apiece. IDs pay off where a `u32` replaces
+  a string inside a busy loop, and nothing here does that yet.
+- **The tokenizer fix stays.** It's a separate, earlier commit (`40f4c43`): indexing and queries now
+  share one definition of a word. It changes only how queries are split, so the build is unaffected.
 
 **Remaining steps:**
 
-1. u32 word IDs (with a fix: indexing and queries now share one definition of a word)
-2. `with_capacity`
-3. A faster hasher
-4. Query timing, as a measurement-only step like step 0, so later steps can be compared on search
+1. `with_capacity`
+2. A faster hasher
+3. Query timing, as a measurement-only step like step 0, so later steps can be compared on search
    speed too
-5. Two alternatives for the merge, each measured against the step before: a sharded parallel merge,
+4. Two alternatives for the merge, each measured against the step before: a sharded parallel merge,
    and segments (no merge; queries search each file's index, as Lucene and tantivy do)
 
 ## Committing and pushing
