@@ -5,7 +5,6 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use rayon::prelude::*;
-use dashmap::DashMap;
 use mimalloc::MiMalloc;
 
 #[cfg(not(any(feature = "ahash", feature = "rustc-hash")))]
@@ -70,8 +69,7 @@ fn index_file(path: &Path) -> std::io::Result<DocIndex> {
 struct Index {
     docs: Vec<String>,                                     // doc id -> file name
     doc_lengths: Vec<usize>,                               // doc id -> word count
-    // postings: HashMap<String, HashMap<usize, Vec<u32>>>, // word -> (doc id -> positions)
-    postings: DashMap<String, HashMap<usize, Vec<u32>>, HashBuilder>, // word -> (doc id -> positions)
+    postings: HashMap<String, HashMap<usize, Vec<u32>>>, // word -> (doc id -> positions)
 }
 
 impl Index {
@@ -95,27 +93,25 @@ impl Index {
             .collect::<std::io::Result<Vec<DocIndex>>>()?;
         eprintln!("  per-file indexing: {:?}", t.elapsed());
 
-        // 3. Merge the per-file indices into one shared map, all files at once.
+        // 3. Merge the per-file indices into one.
         let t = Instant::now();
         // Distinct words overall: at least the largest file's count, at most the sum. Guess twice the largest.
         let largest = doc_indexes.iter().map(|d| d.postings.len()).max().unwrap_or(0);
-        let mut docs = Vec::with_capacity(doc_indexes.len());
-        let mut doc_lengths = Vec::with_capacity(doc_indexes.len());
-        let mut file_postings = Vec::with_capacity(doc_indexes.len());
-        for doc in doc_indexes {
-            docs.push(doc.name);
-            doc_lengths.push(doc.len);
-            file_postings.push(doc.postings);
-        }
-        let postings: DashMap<String, HashMap<usize, Vec<u32>>, HashBuilder> =
-            DashMap::with_capacity_and_hasher(largest * 2, HashBuilder::default());
-        file_postings.into_par_iter().enumerate().for_each(|(doc_id, file)| {
-            for (word, positions) in file {
-                postings.entry(word).or_default().insert(doc_id, positions);
+        let mut index = Index {
+            docs: Vec::with_capacity(doc_indexes.len()),
+            doc_lengths: Vec::with_capacity(doc_indexes.len()),
+            postings: HashMap::with_capacity_and_hasher(largest * 2, HashBuilder::default()),
+        };
+        for (doc_id, doc) in doc_indexes.into_iter().enumerate() {
+            index.docs.push(doc.name);
+            index.doc_lengths.push(doc.len);
+            for (word, positions) in doc.postings {
+                let inner_map = index.postings.entry(word).or_default();
+                inner_map.insert(doc_id, positions);
             }
-        });
+        }
         eprintln!("  merge: {:?}", t.elapsed());
-        Ok(Index { docs, doc_lengths, postings })
+        Ok(index)
     }
 
     // Rank documents with BM25 (k1 = 1.2, b = 0.75).
@@ -131,7 +127,7 @@ impl Index {
             let df = postings.len() as f64;
             let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
 
-            for (&doc_id, positions) in postings.iter() {
+            for (&doc_id, positions) in postings {
                 let tf = positions.len() as f64;
                 let len_norm = 1.0 - B + B * self.doc_lengths[doc_id] as f64 / avg_len;
                 *scores.entry(doc_id).or_insert(0.0) += idf * tf * (K1 + 1.0) / (tf + K1 * len_norm);
@@ -210,12 +206,12 @@ fn write_dump(index: &Index, path: &str) -> std::io::Result<()> {
     let mut out = BufWriter::new(fs::File::create(path)?);
 
     // 1. Collect the words and sort them.
-    let mut words: Vec<String> = index.postings.iter().map(|entry| entry.key().clone()).collect();
+    let mut words: Vec<&String> = index.postings.keys().collect();
     words.sort();
 
     // 2. For each word, collect its doc ids and sort them by file name.
     for word in words {
-        let by_doc = index.postings.get(&word).unwrap();
+        let by_doc = &index.postings[word];
         let mut doc_ids: Vec<usize> = by_doc.keys().copied().collect();
         doc_ids.sort_by(|a, b| index.docs[*a].cmp(&index.docs[*b]));
 
