@@ -165,43 +165,43 @@ rayon uses.
 Rust with rayon is the baseline. Each step is one snapshot, built on all the steps before it, and
 each experiment re-runs every earlier step alongside the new one, so the latest experiment holds
 the whole series measured together. The table and charts come from the latest experiment,
-`20261004-002801_s3-borrow`.
+`20261004-010152_s4-u32pos`, the first with correct peak memory for every snapshot.
 
-| Step | Snapshot | Change | Median build | vs previous step (95% CI) | Per-file indexing | Merge | Cores used |
-|---|---|---|---|---|---|---|---|
-| — | `baseline` | Rust with rayon | 180.4 ms | — | — | — | 2.88 |
-| 0 | `s0-phases` | Phase timers and index dump (control) | 180.9 ms | +0.3% (−0.3% to +0.9%) | 111.8 ms | 69.1 ms | 2.88 |
-| 1 | `s1-profile` | Fat LTO, one codegen unit, `target-cpu=native` | 175.3 ms | −3.1% (−3.7% to −2.5%) | 110.6 ms | 64.7 ms | 2.87 |
-| 2 | `s2-mimalloc` | mimalloc allocator | 92.5 ms | −47.2% (−47.6% to −46.9%) | 57.8 ms | 34.0 ms | 8.54 |
-| 3 | `s3-borrow` | `&str` slices, lowercase each file once | 64.5 ms | −30.3% (−30.8% to −29.7%) | 39.6 ms | 24.7 ms | 7.57 |
+| Step | Snapshot | Change | Median build | vs previous step (95% CI) | Per-file indexing | Merge | Cores used | CPU time | Peak memory |
+|---|---|---|---|---|---|---|---|---|---|
+| — | `baseline` | Rust with rayon | 183.5 ms | — | — | — | 2.87 | 665 ms | 141 MB |
+| 0 | `s0-phases` | Phase timers and index dump (control) | 185.1 ms | +0.9% (−0.2% to +1.8%) | 112.9 ms | 71.7 ms | 2.87 | 668 ms | 141 MB |
+| 1 | `s1-profile` | Fat LTO, one codegen unit, `target-cpu=native` | 177.9 ms | −3.9% (−4.7% to −2.9%) | 111.6 ms | 66.2 ms | 2.86 | 646 ms | 142 MB |
+| 2 | `s2-mimalloc` | mimalloc allocator | 93.6 ms | −47.4% (−47.9% to −47.0%) | 58.3 ms | 35.4 ms | 8.47 | 922 ms | 291 MB |
+| 3 | `s3-borrow` | `&str` slices, lowercase each file once | 65.3 ms | −30.2% (−31.0% to −29.6%) | 40.3 ms | 24.9 ms | 7.55 | 592 ms | 217 MB |
+| 4 | `s4-u32pos` | u32 positions | 62.8 ms | −3.8% (−4.8% to −2.6%) | 36.5 ms | 26.3 ms | 7.40 | 554 ms | 213 MB |
 
-So far: **2.8× faster than the baseline** (−64%).
+So far: **2.9× faster than the baseline** (−66%).
 
 - **The control matches the baseline** (the interval includes zero), so the timers cost nothing and
   the setup measures reliably.
 - **Allocation was the hidden bottleneck.** With the default allocator, rayon's threads mostly
   queued for memory; mimalloc's per-thread pools nearly halved the build and tripled the cores in
-  use. CPU time rose from 637 to 914 ms: more cores working at once, for half the wall time.
+  use. The costs: CPU time rose by 43% (more cores working at once, for half the wall time), and
+  peak memory roughly doubled (142 to 291 MB), because mimalloc keeps freed memory for reuse.
 - **Allocating less still paid off after mimalloc.** Slices instead of one `String` per word cut
-  per-file indexing by 31% and total CPU time by 36% (914 to 582 ms): less work, not just better
-  spread. The merge also got 27% faster, likely because the per-file maps now hold compactly
-  allocated keys that are quicker to hash and move.
-- **The merge is still the largest single-threaded piece** (about 25 of 64 ms).
-- Peak memory isn't shown yet: these runs predate the fix that stopped the runner's own memory from
-  being counted. It's measured correctly from step 4 on.
+  per-file indexing by 31%, CPU time by 36%, and peak memory by a quarter (291 to 217 MB). The merge
+  also got faster, likely because the per-file maps now hold compactly allocated keys.
+- **u32 positions: a small, real gain** (−3.8%), all in per-file indexing (−9%); total CPU time fell
+  another 6%. Peak memory fell only 4 MB of a possible ~10 MB, since mimalloc holds on to freed memory.
+- **The merge is still the largest single-threaded piece** (about 26 of 63 ms).
 
-![Median build time per step](bench/results/20261004-002801_s3-borrow/steps.png)
-![Build time across runs, per step](bench/results/20261004-002801_s3-borrow/run_sequence_rust_rayon.png)
+![Median build time per step](bench/results/20261004-010152_s4-u32pos/steps.png)
+![Build time across runs, per step](bench/results/20261004-010152_s4-u32pos/run_sequence_rust_rayon.png)
 
 **Remaining steps:**
 
-1. u32 positions
-2. u32 word IDs
-3. `with_capacity`
-4. A faster hasher
-5. Query timing, as a measurement-only step like step 0, so later steps can be compared on search
+1. u32 word IDs (with a fix: indexing and queries now share one definition of a word)
+2. `with_capacity`
+3. A faster hasher
+4. Query timing, as a measurement-only step like step 0, so later steps can be compared on search
    speed too
-6. Two alternatives for the merge, each measured against the step before: a sharded parallel merge,
+5. Two alternatives for the merge, each measured against the step before: a sharded parallel merge,
    and segments (no merge; queries search each file's index, as Lucene and tantivy do)
 
 ## Committing and pushing
