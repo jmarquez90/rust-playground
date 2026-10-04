@@ -7,6 +7,7 @@
     uv run --python 3.14 bench/analyze.py                                   # newest results file
     uv run --python 3.14 bench/analyze.py bench/results/<file>.feather
     uv run --python 3.14 bench/analyze.py <file> --reference rust/baseline/1-thread
+    uv run --python 3.14 bench/analyze.py <file> --one-chart --log          # overview: all on one chart
 
 Speed-ups are against python/seq when the file has it; otherwise against the first snapshot's
 rayon configuration (the tuning baseline). --reference overrides both.
@@ -37,7 +38,11 @@ Writes into bench/results/<file stem>/:
   +/-1 SD covers for normally distributed data, but not stretched by single outliers. --band sd
   draws the rolling mean +/-1 SD instead. Window = 5% of the runs, at least 10. A chart holds at
   most 8 configurations; a group with more is split into numbered parts.
+  --one-chart puts every configuration on one run_sequence.png instead (8 at most).
 - distribution.png: median, middle 50% and 5th-95th percentile per configuration.
+- --log draws the build-time axis of run_sequence*.png and distribution.png on a log scale, so
+  configurations far apart (Python's hundreds of ms against Rust's tens) stay readable on one
+  chart: equal distances are equal ratios. The axis then can't start at 0.
 - steps.png: median per Rust snapshot, per mode (when there are two or more snapshots).
 
 Warm-up rounds and runs that failed or returned the wrong counts are excluded and reported.
@@ -185,7 +190,7 @@ def steps_table(summary, boots, qboots, labels):
     return pd.DataFrame(rows)
 
 
-def run_sequence_groups(order):
+def run_sequence_groups(order, one_chart=False):
     """Which configurations share a chart.
 
     Language comparison (Python plus at most one Rust snapshot, 8 configurations at most): one
@@ -207,6 +212,11 @@ def run_sequence_groups(order):
                            f"{title} (part {i + 1} of {len(parts)})" if many else title, part))
 
     snapshots = list(dict.fromkeys(c.split("/")[1] for c in rust))
+    if one_chart:
+        if len(order) <= len(SERIES):
+            title = "Python and Rust" if python and rust else ("Python" if python else "Rust")
+            return [("", title, order)]
+        print(f"  --one-chart: {len(order)} configurations don't fit one chart ({len(SERIES)} at most); splitting")
     if python and rust and len(snapshots) == 1 and len(python) + len(rust) <= len(SERIES) and not other:
         groups.append(("", "Python and Rust", python + rust))
         return groups
@@ -227,6 +237,14 @@ def run_sequence_groups(order):
     return groups
 
 
+def log_axis(axis):
+    """Plain-number ticks at 1, 2 and 5 x 10^n for an axis already on a log scale."""
+    from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
+    axis.set_major_locator(LogLocator(base=10, subs=(1.0, 2.0, 5.0)))
+    axis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:,.0f}" if v >= 1 else f"{v:g}"))
+    axis.set_minor_formatter(NullFormatter())
+
+
 def rolling_band(y, window, band):
     roll = pd.Series(y).rolling(window, center=True, min_periods=max(3, window // 2))
     if band == "sd":
@@ -235,15 +253,16 @@ def rolling_band(y, window, band):
     return roll.median().to_numpy(), roll.quantile(0.16).to_numpy(), roll.quantile(0.84).to_numpy()
 
 
-def chart_run_sequence(data, configs, title, out, band="pct"):
-    """One chart with a shared y-axis from 0: each configuration is a colored line and band."""
+def chart_run_sequence(data, configs, title, out, band="pct", log=False):
+    """One chart with a shared y-axis (from 0, or log): each configuration is a colored line and band."""
     from matplotlib.legend_handler import HandlerTuple
     from matplotlib.patches import Patch
 
     n_runs = max(len(data[c]) for c in configs)
     window = max(10, n_runs // 20)
     pooled = np.concatenate([data[c]["build_ms"].to_numpy() for c in configs])
-    ymax = float(np.percentile(pooled, 99.5)) * 1.1
+    ymax = float(np.percentile(pooled, 99.5)) * (1.25 if log else 1.1)
+    ymin = float(np.percentile(pooled, 0.5)) / 1.25 if log else 0.0
 
     series = []
     for i, c in enumerate(configs):
@@ -257,7 +276,7 @@ def chart_run_sequence(data, configs, title, out, band="pct"):
     for c, color, x, y, center, lo, hi in series:  # dots and bands first...
         ax.scatter(x, y, s=2, color=color, alpha=0.18, linewidths=0, zorder=1, rasterized=True)
         ax.fill_between(x, lo, hi, color=color, alpha=0.13, linewidth=0, zorder=2)
-        above += int((y > ymax).sum())
+        above += int((y > ymax).sum()) + int((y < ymin).sum())
     handles, labels = [], []
     for c, color, x, y, center, lo, hi in series:  # ...then every line on top
         style = (0, (5, 2)) if c.startswith("rust") else "-"  # language as a second cue: Rust dashed
@@ -267,16 +286,19 @@ def chart_run_sequence(data, configs, title, out, band="pct"):
         labels.append(f"{c}\nmedian {np.median(y):,.0f} ms · SD {y.std(ddof=1):,.0f} ms")
 
     ax.set_xlim(0, n_runs + 1)
-    ax.set_ylim(0, ymax)
+    if log:
+        ax.set_yscale("log")
+        log_axis(ax.yaxis)
+    ax.set_ylim(ymin, ymax)
     ax.grid(axis="y")
     ax.set_xlabel("Run")
-    ax.set_ylabel("Build time (ms)")
+    ax.set_ylabel("Build time (ms, log scale)" if log else "Build time (ms)")
     ax.set_title(f"{title}: build time across runs", pad=18)
     how = ("line = rolling mean · band = ±1 SD" if band == "sd"
            else "line = rolling median · band = 16th–84th percentile (the ±1 SD range, robust to outliers)")
     note = f"{how} · window {window} runs · dots = single runs"
     if above:
-        note += f" · {above} run{'s' if above > 1 else ''} above the range shown"
+        note += f" · {above} run{'s' if above > 1 else ''} outside the range shown"
     ax.text(0, 1.015, note, transform=ax.transAxes, color=INK2, fontsize=8, va="bottom")
     ax.legend(handles, labels, handler_map={tuple: HandlerTuple(ndivide=1, pad=0)},
               loc="upper left", bbox_to_anchor=(1.01, 1.0), title="Configuration", title_fontsize=8,
@@ -286,7 +308,7 @@ def chart_run_sequence(data, configs, title, out, band="pct"):
     plt.close(fig)
 
 
-def chart_distribution(summary, reference, out):
+def chart_distribution(summary, reference, out, log=False):
     s = summary.sort_values("median_ms", ascending=True).reset_index(drop=True)
     fig, ax = plt.subplots(figsize=(8, 0.5 * len(s) + 1.4))
     y = np.arange(len(s))[::-1]
@@ -300,14 +322,21 @@ def chart_distribution(summary, reference, out):
         label = f"{r['median_ms']:,.0f} ms"
         if r["config"] != reference:
             label += f"  ·  {r['speedup']:.2f}× vs {reference}"
-        ax.text(r["p95_ms"] + xmax * 0.015, yi, label, va="center", color=INK2, fontsize=8)
+        x_text = r["p95_ms"] * 1.06 if log else r["p95_ms"] + xmax * 0.015
+        ax.text(x_text, yi, label, va="center", color=INK2, fontsize=8)
     ax.set_yticks(y, s["config"])
-    ax.set_xlim(0, xmax * 1.45)
+    if log:
+        xmin = s["p5_ms"].min() / 1.5
+        ax.set_xscale("log")
+        log_axis(ax.xaxis)
+        ax.set_xlim(xmin, xmax * 3.5)
+    else:
+        ax.set_xlim(0, xmax * 1.45)
     ax.set_ylim(-0.7, len(s) - 0.3)
     ax.grid(axis="x")
     ax.spines["left"].set_visible(False)
     ax.tick_params(axis="y", length=0)
-    ax.set_xlabel("Build time (ms)")
+    ax.set_xlabel("Build time (ms, log scale)" if log else "Build time (ms)")
     n = int(summary["n"].min())
     ax.set_title(f"Build time per configuration ({n:,} runs each)", pad=18)
     ax.text(0, 1.015, "white tick = median · thick bar = middle 50% · thin line = 5th–95th percentile",
@@ -371,6 +400,10 @@ def main():
                         help="configuration for speed-ups (default python/seq, else the first snapshot's rayon run)")
     parser.add_argument("--band", choices=["pct", "sd"], default="pct",
                         help="run-sequence band: 16th-84th percentiles (default) or mean +/-1 SD")
+    parser.add_argument("--one-chart", action="store_true",
+                        help="every configuration on one run-sequence chart (8 at most)")
+    parser.add_argument("--log", action="store_true",
+                        help="log-scale build-time axis on the run-sequence and distribution charts")
     args = parser.parse_args()
 
     if args.results:
@@ -452,11 +485,11 @@ def main():
     for old in out_dir.glob("run_sequence*.png"):  # replaced below; the grouping may have changed
         old.unlink()
     run_files = []
-    for key, title, configs in run_sequence_groups(order):
+    for key, title, configs in run_sequence_groups(order, args.one_chart):
         name = f"run_sequence_{key}.png" if key else "run_sequence.png"
-        chart_run_sequence(data, configs, title, out_dir / name, args.band)
+        chart_run_sequence(data, configs, title, out_dir / name, args.band, args.log)
         run_files.append(name)
-    chart_distribution(summary, reference, out_dir / "distribution.png")
+    chart_distribution(summary, reference, out_dir / "distribution.png", args.log)
     (out_dir / "summary.md").write_text("\n".join(md) + "\n")
 
     with pd.option_context("display.width", 160, "display.max_columns", 20):

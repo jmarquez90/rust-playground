@@ -11,6 +11,12 @@ Run from the repo root, inside the dev container:
     uv run --python 3.14 bench/run_bench.py run --rust baseline --extra-python 3.14t --runs 1000 --name languages
     uv run --python 3.14 bench/run_bench.py verify --rust baseline --extra-python 3.14t   # outputs only
 
+Choose Python's modes with --python-modes (default all three), e.g. an overview of the best of
+each language:
+
+    uv run --python 3.14 bench/run_bench.py run --python-modes seq --extra-python 3.14t \
+        --rust-modes rayon --rust baseline,s9-safe,s9-speed --runs 1000 --name overview
+
 Tuning experiments use rayon as the baseline. After each change: commit, take a snapshot, then
 run every snapshot so far in rayon mode only, so each experiment adds one line to the chart:
 
@@ -22,8 +28,8 @@ What one experiment does:
 
 - Copies data/*.txt to a container-local folder once (~/bench-data), so runs don't read
   through the Windows-mounted folder.
-- Builds the configurations: python/seq, python/process, python/thread; python<label>/thread
-  for each --extra-python interpreter (for example python3.14t/thread, free-threaded); and for
+- Builds the configurations: python/seq, python/process, python/thread (the ones in
+  --python-modes); python<label>/thread for each --extra-python interpreter (for example python3.14t/thread, free-threaded); and for
   every Rust snapshot the modes in --rust-modes: rust/<label>/1-thread (RAYON_NUM_THREADS=1)
   and rust/<label>/rayon (all cores). Python's thread and process modes use one worker per
   available CPU, rayon's default, so the parallel configurations run at the same width.
@@ -302,8 +308,12 @@ def resolve_python(spec):
 def build_configs(args, corpus):
     configs = []
     script = str(BENCH / "index_bench.py")
+    py_modes = [m.strip() for m in args.python_modes.split(",") if m.strip()]
+    unknown = [m for m in py_modes if m not in PY_MODES]
+    if unknown or not py_modes:
+        sys.exit(f"--python-modes takes {', '.join(PY_MODES)} (comma-separated); got '{args.python_modes}'.")
     if not args.no_python:
-        for mode in PY_MODES:
+        for mode in py_modes:
             configs.append({
                 "config": f"python/{mode}", "language": "python",
                 "variant": f"cpython-{platform.python_version()}", "mode": mode,
@@ -656,6 +666,9 @@ def add_config_args(p):
     p.add_argument("--rust-modes", default="1-thread,rayon",
                    help="Rust modes per snapshot: 1-thread, rayon, or both (default both; tuning uses rayon)")
     p.add_argument("--no-python", action="store_true", help="skip the Python configurations")
+    p.add_argument("--python-modes", default=",".join(PY_MODES),
+                   help="Python modes to run with the runner's own Python: seq, process, thread, comma-separated "
+                        "(default all three); --extra-python interpreters always run in thread mode")
     p.add_argument("--extra-python", default="",
                    help="more interpreters to run in thread mode, comma-separated: a uv version such as "
                         "3.14t, or LABEL=/path/to/python")
