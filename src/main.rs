@@ -16,12 +16,14 @@ const K1: f64 = 1.2; // how quickly repeated words stop adding to the score
 const B: f64 = 0.75; // how much long documents are penalized
 
 
-// tokenize the text
+fn words(lowercased: &str) -> impl Iterator<Item = &str> {
+    lowercased.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty())
+}
+
+
+// tokenize: split a query into lowercase words, exactly as the index does.
 fn tokenize(text: &str) -> Vec<String> {
-    text.split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .map(|w| w.to_lowercase())
-        .collect()
+    words(&text.to_lowercase()).map(|w| w.to_string()).collect()
 }
 
 
@@ -36,9 +38,9 @@ fn index_file(path: &Path) -> std::io::Result<DocIndex> {
     let text = fs::read_to_string(path)?.to_lowercase();
     let mut len = 0;
     let mut local: HashMap<&str, Vec<u32>> = HashMap::new();
-    let words = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
-
-    for (pos, word) in words.enumerate() {
+    // let words = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
+    
+    for (pos, word) in words(&text).enumerate() {
         local.entry(word).or_default().push(u32::try_from(pos).expect("over 4 billion words in one file"));
         len = pos + 1;
     }
