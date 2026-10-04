@@ -37,8 +37,8 @@ struct DocIndex {
 fn index_file(path: &Path) -> std::io::Result<DocIndex> {
     let text = fs::read_to_string(path)?.to_lowercase();
     let mut len = 0;
-    let mut local: HashMap<&str, Vec<u32>> = HashMap::new();
-    // let words = text.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty());
+    // About one distinct word per 64 bytes of text in this corpus (measured: 37 to 124).
+    let mut local: HashMap<&str, Vec<u32>> = HashMap::with_capacity(text.len() / 64);
     
     for (pos, word) in words(&text).enumerate() {
         local.entry(word).or_default().push(u32::try_from(pos).expect("over 4 billion words in one file"));
@@ -81,10 +81,12 @@ impl Index {
 
         // 3. Merge the per-file indices into one.
         let t = Instant::now();
+        // Distinct words overall: at least the largest file's count, at most the sum. Guess twice the largest.
+        let largest = doc_indexes.iter().map(|d| d.postings.len()).max().unwrap_or(0);
         let mut index = Index {
-            docs: Vec::new(),
-            doc_lengths: Vec::new(),
-            postings: HashMap::new(),
+            docs: Vec::with_capacity(doc_indexes.len()),
+            doc_lengths: Vec::with_capacity(doc_indexes.len()),
+            postings: HashMap::with_capacity(largest * 2),
         };
         for (doc_id, doc) in doc_indexes.into_iter().enumerate() {
             index.docs.push(doc.name);
