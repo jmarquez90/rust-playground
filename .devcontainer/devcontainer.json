@@ -1,6 +1,7 @@
 {
   "name": "rust-playground",
   "build": { "dockerfile": "Dockerfile" },
+  "runArgs": ["--cap-add=PERFMON"],
   "remoteUser": "dev",
   "containerEnv": { "CARGO_TARGET_DIR": "/home/dev/target" },
   "mounts": [
@@ -13,5 +14,6 @@
       "backend": "PyCharm",
       "plugins": ["com.jetbrains.rust"]
     }
-  }
+  },
+  
 }
