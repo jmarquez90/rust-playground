@@ -40,6 +40,9 @@ What one experiment does:
   - build_ms, the program's own "indexed in" figure (the main metric; excludes process
     start-up), and wall_ms, the whole process measured from outside. Phase timings
     (index_ms, merge_ms) are recorded when the program prints them.
+  - query_ms: the average time per search query, when a snapshot prints it. Every Rust run
+    gets QUERY_BENCH=<QUERY_REPS>; snapshots that support it run their built-in query set that
+    many times after the build, outside build_ms (wall_ms and cpu_ms include it).
   - cpu_ms: user + system CPU time of the whole process tree, all threads and child
     processes included. cpu_ms / wall_ms is the number of cores in use on average.
   - peak_rss_mb: peak memory of the largest single process; peak_tree_rss_mb: peak total
@@ -86,6 +89,7 @@ RESULTS = BENCH / "results"
 SNAPSHOTS = Path.home() / "bench-bins"
 CORPUS_COPY = Path.home() / "bench-data"
 QUERY = "whale"  # the Rust program needs a query; search time is outside build_ms
+QUERY_REPS = 50  # QUERY_BENCH: repetitions of a snapshot's built-in query set, for query_ms
 PY_MODES = ["seq", "process", "thread"]
 RUST_MODES = {"1-thread": "1", "rayon": None}  # mode -> RAYON_NUM_THREADS (None = all cores)
 VERIFY_ROOT = Path.home() / "bench-verify"
@@ -101,6 +105,7 @@ TIMINGS = {
     "build_ms": re.compile(r"indexed in " + DUR),
     "index_ms": re.compile(r"per-file indexing:\s*" + DUR),
     "merge_ms": re.compile(r"merge:\s*" + DUR),
+    "query_ms": re.compile(r"query:\s*" + DUR),
 }
 COUNTS = re.compile(r"(\d{1,15}) documents, (\d{1,15}) distinct words")  # bounded: no backtracking blow-up
 WORKERS = re.compile(r"workers:\s*(\d{1,6})")
@@ -327,7 +332,7 @@ def build_configs(args, corpus):
             threads = RUST_MODES[mode]
             configs.append({
                 "config": f"rust/{label}/{mode}", "language": "rust", "variant": label, "mode": mode,
-                "cmd": [binary, corpus, QUERY], "env": {"RAYON_NUM_THREADS": threads},
+                "cmd": [binary, corpus, QUERY], "env": {"RAYON_NUM_THREADS": threads, "QUERY_BENCH": str(QUERY_REPS)},
                 "threads": int(threads) if threads else CPUS,
             })
     if not configs:
@@ -566,7 +571,7 @@ def cmd_run(args):
     out = RESULTS / f"{stamp}_{args.name}.feather"
     meta = {
         "experiment": args.name, "created": now_iso(), "seed": seed,
-        "runs": args.runs, "warmup_rounds": args.warmup, "query": QUERY,
+        "runs": args.runs, "warmup_rounds": args.warmup, "query": QUERY, "query_bench_reps": QUERY_REPS,
         "configs": [{k: c[k] for k in ("config", "language", "variant", "mode", "cmd", "env", "threads")}
                     for c in configs],
         "python": {"executable": sys.executable, "version": sys.version},

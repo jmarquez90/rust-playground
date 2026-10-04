@@ -20,6 +20,9 @@ Writes into bench/results/<file stem>/:
   recorded leave it out).
 - steps.csv: when there are two or more Rust snapshots, each one's change against the first
   snapshot and against the previous one, per mode, with 95% bootstrap intervals.
+- Query time, when snapshots print it (QUERY_BENCH): the median time per search query in µs
+  with a 95% interval (summary), and its change against the previous snapshot (steps). Columns
+  stay empty for snapshots that don't print it.
 - run_sequence*.png: build time against run number. Every configuration in a chart shares one
   y-axis (starting at 0) and has its own color, named in the key; Rust lines are dashed.
   - run_sequence.png, for a language comparison (Python plus one Rust snapshot, 8
@@ -103,8 +106,16 @@ def ci(values):
     return float(lo), float(hi)
 
 
+def query_us(d):
+    """Per-query search times in µs, or None when the configuration doesn't print them."""
+    if "query_ms" not in d.columns or not d["query_ms"].notna().any():
+        return None
+    return d["query_ms"].dropna().to_numpy() * 1000
+
+
 def summarize(data, order, reference, rng):
     boots = {c: boot_medians(data[c]["build_ms"].to_numpy(), rng) for c in order}
+    qboots = {c: boot_medians(query_us(data[c]), rng) for c in order if query_us(data[c]) is not None}
     ref_median = float(np.median(data[reference]["build_ms"]))
     rows = []
     for c in order:
@@ -112,6 +123,8 @@ def summarize(data, order, reference, rng):
         x = d["build_ms"].to_numpy()
         lo, hi = ci(boots[c])
         s_lo, s_hi = ci(boots[reference] / boots[c])
+        q = query_us(d)
+        q_lo, q_hi = ci(qboots[c]) if c in qboots else (float("nan"), float("nan"))
         rows.append({
             "config": c, "language": d["language"].iloc[0], "n": len(x),
             "mean_ms": x.mean(), "sd_ms": x.std(ddof=1), "cv_pct": 100 * x.std(ddof=1) / x.mean(),
@@ -120,10 +133,12 @@ def summarize(data, order, reference, rng):
             "p75_ms": np.percentile(x, 75), "p95_ms": np.percentile(x, 95), "max_ms": x.max(),
             "index_median_ms": d["index_ms"].median(), "merge_median_ms": d["merge_ms"].median(),
             "wall_median_ms": d["wall_ms"].median(),
+            "query_median_us": float(np.median(q)) if q is not None else float("nan"),
+            "query_ci_low_us": q_lo, "query_ci_high_us": q_hi,
             "speedup": ref_median / np.median(x), "speedup_ci_low": s_lo, "speedup_ci_high": s_hi,
             **resources(d),
         })
-    return pd.DataFrame(rows), boots
+    return pd.DataFrame(rows), boots, qboots
 
 
 RESOURCE_COLUMNS = ["threads", "gil", "cpu_median_ms", "cores_used", "peak_rss_median_mb", "peak_tree_rss_median_mb"]
@@ -145,7 +160,7 @@ def resources(d):
     }
 
 
-def steps_table(summary, boots, labels):
+def steps_table(summary, boots, qboots, labels):
     rows = []
     for mode in RUST_MODES:
         configs = [f"rust/{l}/{mode}" for l in labels if f"rust/{l}/{mode}" in boots]
@@ -158,6 +173,13 @@ def steps_table(summary, boots, labels):
                 base_med = summary.set_index("config").loc[base, "median_ms"]
                 row[f"{name}_pct"] = 100 * (med / base_med - 1)
                 row[f"{name}_ci_low"], row[f"{name}_ci_high"] = ci(change)
+            # Query time against the previous snapshot, when both print it.
+            row["query_median_us"] = summary.set_index("config").loc[c, "query_median_us"]
+            row["query_vs_previous_pct"] = row["query_vs_previous_ci_low"] = row["query_vs_previous_ci_high"] = float("nan")
+            if c in qboots and prev in qboots and prev != c:
+                prev_q = summary.set_index("config").loc[prev, "query_median_us"]
+                row["query_vs_previous_pct"] = 100 * (row["query_median_us"] / prev_q - 1)
+                row["query_vs_previous_ci_low"], row["query_vs_previous_ci_high"] = ci(100 * (qboots[c] / qboots[prev] - 1))
             rows.append(row)
     return pd.DataFrame(rows)
 
@@ -385,16 +407,21 @@ def main():
         sys.exit(f"Reference '{reference}' not in this file. Choose one of: {', '.join(order)}")
 
     rng = np.random.default_rng(0)
-    summary, boots = summarize(data, order, reference, rng)
+    summary, boots, qboots = summarize(data, order, reference, rng)
+    has_query = summary["query_median_us"].notna().any()
     out_dir = path.parent / path.stem
     out_dir.mkdir(exist_ok=True)
     summary.to_csv(out_dir / "summary.csv", index=False)
 
     cols = ["config", "n", "median_ms", "median_ci_low", "median_ci_high", "mean_ms", "sd_ms", "cv_pct",
             "p5_ms", "p95_ms", "index_median_ms", "merge_median_ms", "wall_median_ms", "speedup"]
+    if has_query:
+        cols[-1:-1] = ["query_median_us", "query_ci_low_us", "query_ci_high_us"]
     fmt = {c: "{:,.1f}" for c in cols} | {"config": "{}", "n": "{:,}", "cv_pct": "{:.1f}%", "speedup": "{:.2f}×"}
-    md = [f"# {path.stem}", "", f"Reference for speed-up: `{reference}`. Times in ms; CI = 95% bootstrap "
-          f"interval of the median ({BOOTSTRAP} resamples).", "", to_markdown(summary, cols, fmt)]
+    fmt |= {c: "{:,.2f}" for c in ("query_median_us", "query_ci_low_us", "query_ci_high_us")}
+    units = "Times in ms, except query times (µs per query)" if has_query else "Times in ms"
+    md = [f"# {path.stem}", "", f"Reference for speed-up: `{reference}`. {units}; CI = 95% bootstrap "
+          f"interval of the median ({BOOTSTRAP} resamples).", "", to_markdown(summary, cols, fmt).replace("| nan ", "|  ")]
     has_resources = summary["cpu_median_ms"].notna().any()
     if has_resources:
         rcols = ["config", "threads", "gil", "wall_median_ms", "cpu_median_ms", "cores_used",
@@ -409,13 +436,16 @@ def main():
 
     rust_labels = [l for l in labels if any(c.startswith(f"rust/{l}/") for c in order)]
     if len(rust_labels) >= 2:
-        steps = steps_table(summary, boots, rust_labels)
+        steps = steps_table(summary, boots, qboots, rust_labels)
         steps.to_csv(out_dir / "steps.csv", index=False)
         chart_steps(steps, summary, out_dir / "steps.png")
         scols = ["mode", "snapshot", "median_ms", "vs_previous_pct", "vs_previous_ci_low", "vs_previous_ci_high",
                  "vs_first_pct", "vs_first_ci_low", "vs_first_ci_high"]
-        sfmt = {c: "{:+.1f}%" for c in scols} | {"mode": "{}", "snapshot": "{}", "median_ms": "{:,.1f}"}
-        md += ["", "## Rust snapshots", "", to_markdown(steps, scols, sfmt)]
+        if has_query:
+            scols += ["query_median_us", "query_vs_previous_pct", "query_vs_previous_ci_low", "query_vs_previous_ci_high"]
+        sfmt = {c: "{:+.1f}%" for c in scols} | {"mode": "{}", "snapshot": "{}", "median_ms": "{:,.1f}",
+                                                 "query_median_us": "{:,.2f}"}
+        md += ["", "## Rust snapshots", "", to_markdown(steps, scols, sfmt).replace("| nan ", "|  ").replace("| +nan% ", "|  ")]
 
     for old in out_dir.glob("run_sequence*.png"):  # replaced below; the grouping may have changed
         old.unlink()
@@ -429,7 +459,8 @@ def main():
 
     with pd.option_context("display.width", 160, "display.max_columns", 20):
         print(summary[["config", "n", "median_ms", "median_ci_low", "median_ci_high", "sd_ms", "cv_pct",
-                       "index_median_ms", "merge_median_ms", "speedup"]].round(2).to_string(index=False))
+                       "index_median_ms", "merge_median_ms", "speedup"]
+                      + (["query_median_us"] if has_query else [])].round(2).to_string(index=False))
         if has_resources:
             print(summary[["config", "threads", "gil", "cpu_median_ms", "cores_used", "peak_rss_median_mb",
                            "peak_tree_rss_median_mb"]].round(2).to_string(index=False))
