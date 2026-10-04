@@ -66,9 +66,10 @@ fn index_file(path: &Path) -> std::io::Result<DocIndex> {
 
 
 
-// No merged index: one segment per file, as built. Doc id = position in `segments`.
 struct Index {
-    segments: Vec<DocIndex>,
+    docs: Vec<String>,                                     // doc id -> file name
+    doc_lengths: Vec<usize>,                               // doc id -> word count
+    postings: HashMap<String, HashMap<usize, Vec<u32>>>, // word -> (doc id -> positions)
 }
 
 impl Index {
@@ -92,51 +93,49 @@ impl Index {
             .collect::<std::io::Result<Vec<DocIndex>>>()?;
         eprintln!("  per-file indexing: {:?}", t.elapsed());
 
-        // 3. No merge: the per-file indexes are the index.
-        Ok(Index { segments: doc_indexes })
-    }
-
-    // Distinct words across all segments. Needs a merged view of the vocabulary, so it isn't
-    // part of the build; main calls it after the build timer stops.
-    fn distinct_words(&self) -> usize {
-        let mut all: std::collections::HashSet<&str> = std::collections::HashSet::new();
-        for segment in &self.segments {
-            all.extend(segment.postings.keys().map(|w| w.as_str()));
+        // 3. Merge the per-file indices into one.
+        let t = Instant::now();
+        // Distinct words overall: at least the largest file's count, at most the sum. Guess twice the largest.
+        let largest = doc_indexes.iter().map(|d| d.postings.len()).max().unwrap_or(0);
+        let mut index = Index {
+            docs: Vec::with_capacity(doc_indexes.len()),
+            doc_lengths: Vec::with_capacity(doc_indexes.len()),
+            postings: HashMap::with_capacity_and_hasher(largest * 2, HashBuilder::default()),
+        };
+        for (doc_id, doc) in doc_indexes.into_iter().enumerate() {
+            index.docs.push(doc.name);
+            index.doc_lengths.push(doc.len);
+            for (word, positions) in doc.postings {
+                let inner_map = index.postings.entry(word).or_default();
+                inner_map.insert(doc_id, positions);
+            }
         }
-        all.len()
+        eprintln!("  merge: {:?}", t.elapsed());
+        Ok(index)
     }
-
 
     // Rank documents with BM25 (k1 = 1.2, b = 0.75).
     fn search(&self, query: &str) -> Vec<(f64, &str)> {
-        let n = self.segments.len() as f64;
-        let avg_len = self.segments.iter().map(|s| s.len).sum::<usize>() as f64 / n.max(1.0);
+        let n = self.docs.len() as f64;
+        let avg_len = self.doc_lengths.iter().sum::<usize>() as f64 / n.max(1.0);
         let mut scores: HashMap<usize, f64> = HashMap::default();
 
         for term in tokenize(query) {
-            // Ask every segment. BM25 needs df (how many documents have the term) before it can
-            // score any of them, so collect all the hits first.
-            let hits: Vec<(usize, &Vec<u32>)> = self
-                .segments
-                .iter()
-                .enumerate()
-                .filter_map(|(doc_id, segment)| segment.postings.get(&term).map(|positions| (doc_id, positions)))
-                .collect();
-            if hits.is_empty() {
+            let Some(postings) = self.postings.get(&term) else {
                 continue;
-            }
-            let df = hits.len() as f64;
+            };
+            let df = postings.len() as f64;
             let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
 
-            for (doc_id, positions) in hits {
+            for (&doc_id, positions) in postings {
                 let tf = positions.len() as f64;
-                let len_norm = 1.0 - B + B * self.segments[doc_id].len as f64 / avg_len;
+                let len_norm = 1.0 - B + B * self.doc_lengths[doc_id] as f64 / avg_len;
                 *scores.entry(doc_id).or_insert(0.0) += idf * tf * (K1 + 1.0) / (tf + K1 * len_norm);
             }
         }
         let mut ranked: Vec<(f64, &str)> = scores
             .into_iter()
-            .map(|(id, s)| (s, self.segments[id].name.as_str()))
+            .map(|(id, s)| (s, self.docs[id].as_str()))
             .collect();
         ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
         ranked
@@ -144,21 +143,31 @@ impl Index {
 
     // Documents containing the exact phrase, with how many times it occurs, most first.
     fn phrase_search(&self, phrase: &str) -> Vec<(usize, &str)> {
-        let terms = tokenize(phrase);
+        // 1. Look up every word's postings. If any word isn't indexed, nothing can match.
+        let mut term_postings = Vec::new();
+        for term in tokenize(phrase) {
+            let Some(postings) = self.postings.get(&term) else {
+                return Vec::new();
+            };
+            term_postings.push(postings);
+        }
+        let Some(first) = term_postings.first() else {
+            return Vec::new(); // empty phrase
+        };
 
-        // Each segment on its own: skip it unless it has every word, then count the phrase.
+        // 2. For each document containing the first word, count the phrase there.
         let mut results: Vec<(usize, &str)> = Vec::new();
-        'docs: for segment in &self.segments {
+        'docs: for &doc_id in first.keys() {
             let mut lists: Vec<&[u32]> = Vec::new();
-            for term in &terms {
-                let Some(positions) = segment.postings.get(term) else {
+            for postings in &term_postings {
+                let Some(positions) = postings.get(&doc_id) else {
                     continue 'docs;
                 };
-                lists.push(positions);
+                lists.push(positions); // (b) &Vec<usize> becomes &[usize] automatically
             }
-            let count = phrase_count(&lists); // 0 for an empty phrase
+            let count = phrase_count(&lists); // (c)
             if count > 0 {
-                results.push((count, segment.name.as_str()));
+                results.push((count, self.docs[doc_id].as_str()));
             }
         }
         results.sort_by_key(|r| std::cmp::Reverse(r.0));
@@ -196,26 +205,26 @@ fn write_dump(index: &Index, path: &str) -> std::io::Result<()> {
     // Open the file, buffered
     let mut out = BufWriter::new(fs::File::create(path)?);
 
-    // 1. Collect every segment's words, sort them, and drop the repeats.
-    let mut words: Vec<&String> = index.segments.iter().flat_map(|s| s.postings.keys()).collect();
+    // 1. Collect the words and sort them.
+    let mut words: Vec<&String> = index.postings.keys().collect();
     words.sort();
-    words.dedup();
 
-    // 2. Segments in file-name order, so each word's lines come out sorted by file name.
-    let mut by_name: Vec<&DocIndex> = index.segments.iter().collect();
-    by_name.sort_by(|a, b| a.name.cmp(&b.name));
-
-    // 3. Write one line per (word, doc), in the same format as before.
+    // 2. For each word, collect its doc ids and sort them by file name.
     for word in words {
-        for segment in &by_name {
-            if let Some(positions) = segment.postings.get(word) {
-                let text = positions.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(" ");
-                writeln!(out, "{}\t{}\t{}", word, segment.name, text)?;
-            }
+        let by_doc = &index.postings[word];
+        let mut doc_ids: Vec<usize> = by_doc.keys().copied().collect();
+        doc_ids.sort_by(|a, b| index.docs[*a].cmp(&index.docs[*b]));
+
+        // 3. Write one line per (word, doc).
+        // write: word, index.docs[doc_id], and by_doc[&doc_id] as space-separated numbers
+        for doc_id in doc_ids {
+            let text = by_doc[&doc_id].iter().map(|p| p.to_string()).collect::<Vec<_>>().join(" ");
+            writeln!(out, "{}\t{}\t{}", word, index.docs[doc_id], text)?;
         }
     }
     Ok(())
 }
+
 
 fn time_queries(index: &Index, reps: u32) -> (Duration, usize) {
     let run_all = || {
@@ -251,12 +260,11 @@ fn main() -> std::io::Result<()> {
 
     // building the index
     let index = Index::build(Path::new(&args[1]))?;
-    let build_time = start.elapsed(); // before distinct_words(), which isn't part of the build
     println!(
         "{} documents, {} distinct words, indexed in {:?}",
-        index.segments.len(),
-        index.distinct_words(),
-        build_time,
+        index.docs.len(),
+        index.postings.len(),
+        start.elapsed(),
     );
 
     // write dump
