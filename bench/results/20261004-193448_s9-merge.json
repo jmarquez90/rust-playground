@@ -1,0 +1,190 @@
+{
+  "experiment": "s9-merge",
+  "created": "2026-10-04T19:34:48+00:00",
+  "seed": 895503152,
+  "runs": 1000,
+  "warmup_rounds": 5,
+  "query": "whale",
+  "query_bench_reps": 50,
+  "configs": [
+    {
+      "config": "rust/s8-querytime/rayon",
+      "language": "rust",
+      "variant": "s8-querytime",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s8-querytime/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null,
+        "QUERY_BENCH": "50"
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s9-dashmap/rayon",
+      "language": "rust",
+      "variant": "s9-dashmap",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s9-dashmap/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null,
+        "QUERY_BENCH": "50"
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s9-sharded/rayon",
+      "language": "rust",
+      "variant": "s9-sharded",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s9-sharded/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null,
+        "QUERY_BENCH": "50"
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s9-segments/rayon",
+      "language": "rust",
+      "variant": "s9-segments",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s9-segments/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null,
+        "QUERY_BENCH": "50"
+      },
+      "threads": 24
+    }
+  ],
+  "python": {
+    "executable": "/.jbdevcontainer/uv/environments-v2/run-bench-04c43c0828efcd81/bin/python",
+    "version": "3.14.8 (main, Oct  1 2026, 21:01:09) [Clang 22.1.3 ]"
+  },
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "rust_snapshots": [
+    {
+      "label": "s8-querytime",
+      "created": "2026-10-04T18:19:51+00:00",
+      "note": "query timing (control)",
+      "features": null,
+      "git": {
+        "commit": "3b6545b3fdface1a0c3f6e10cc43aec0d41a9229",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "9d4baff297658d0f47d9fc8434d616776fbe15c9aa0af0592ac17d970a567902",
+      "main_rs_sha256": "2904bd2d7063bced949732c2a16783476ad195db355ae91483a7ad3f1ae3c157",
+      "cargo_toml_sha256": "23205ef7ac80f4071efe7b7e8fe4066577f27eb606fe6a3a8599b0297c2c0eba"
+    },
+    {
+      "label": "s9-dashmap",
+      "created": "2026-10-04T19:10:28+00:00",
+      "note": "parallel merge into one shared DashMap",
+      "features": null,
+      "git": {
+        "commit": "6d0fb95d65c7c4dc55d5864e9d87842cd2286c05",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "7922c6a6e16bc93804ad1e5ff1cbf631d43e980c72cf5f05f3c6aff8cefcb6a6",
+      "main_rs_sha256": "88f0564b9ee2c4f8be8a0dfd3c408e89372cc6c0f75ab01c3c19a72cb1adcede",
+      "cargo_toml_sha256": "68a7263f22430929ab3a646c51cc7b5d3943699c21d90995fb9fb3381aff89bc"
+    },
+    {
+      "label": "s9-sharded",
+      "created": "2026-10-04T19:21:20+00:00",
+      "note": "parallel merge, 32 hash shards, no locks",
+      "features": null,
+      "git": {
+        "commit": "76ec7ff1a20dd3da74d6e3d043a472bb7933d795",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "01c381df94e0ebc817c3365bb863503b0d48d8441c8ff072b17d652cbe46ceae",
+      "main_rs_sha256": "0f536f63701d89f7777d41e607f3ef00e3ddde1b1d0d802a68e6519ac80161da",
+      "cargo_toml_sha256": "23205ef7ac80f4071efe7b7e8fe4066577f27eb606fe6a3a8599b0297c2c0eba"
+    },
+    {
+      "label": "s9-segments",
+      "created": "2026-10-04T19:34:25+00:00",
+      "note": "no merge; one segment per file",
+      "features": null,
+      "git": {
+        "commit": "92fbb79e14cc817e61583832490ece9561a1012d",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "aba277ba4d56dac788f5f9fe8071fc6c9c9c201027036b17e463a95540de280d",
+      "main_rs_sha256": "84d8f0e760f4115226831bd2a9eeb2119b0b86641544ae6e6f12908aa9e3e649",
+      "cargo_toml_sha256": "23205ef7ac80f4071efe7b7e8fe4066577f27eb606fe6a3a8599b0297c2c0eba"
+    }
+  ],
+  "git": {
+    "commit": "431a08d31a71d72ce24dce366e749b5dc8d857b3",
+    "dirty": false
+  },
+  "machine": {
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "cpu_count": 24,
+    "cpus_available": 24,
+    "in_container": true,
+    "cpu_model": "AMD Ryzen 9 5900X 12-Core Processor",
+    "mem_total": "32816800 kB"
+  },
+  "corpus": {
+    "source": "/IdeaProjects/rust-playground/data",
+    "path": "/home/dev/bench-data",
+    "files": 21,
+    "bytes": 13378837,
+    "sha256": "5c2955aa9d4ae998cc5782ed22363e896ae8daa096b830327c7b5ed8a30682b1"
+  },
+  "memory_method": "proc-vmhwm",
+  "notes": "build_ms = program's own timer (main metric). wall_ms = whole process from outside. cpu_ms = user+system CPU of the process tree. peak_tree_rss_mb is sampled every 5 ms.",
+  "verify": {
+    "identical": true,
+    "compared": 4,
+    "failed": 0,
+    "results": [
+      {
+        "config": "rust/s8-querytime/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s9-dashmap/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s9-sharded/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s9-segments/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      }
+    ]
+  }
+}
