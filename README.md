@@ -129,7 +129,7 @@ impressions.
   container's own disk.
 - **Machine:** AMD Ryzen 9 5900X (12 cores, 24 threads), 32 GB, Docker Desktop on WSL2.
 
-**Running** (in the container; `export PATH="/.jbdevcontainer/bin:$PATH"` first in a new terminal):
+**Running** (in the container; its image includes uv and Python 3.14 and 3.14t):
 
 ```bash
 uv run --python 3.14 bench/run_bench.py snapshot <label> --note "what changed"   # build Rust, keep a copy
@@ -299,10 +299,78 @@ commits `6d0fb95` (dashmap) and `76ec7ff` (sharded), each reverted in the commit
   stays in those comparisons as the merged-index reference.
 - **Counting distinct words now takes a merged pass** over every segment's words. The program
   counts them after the build timer stops: the count is a correctness check, not part of building.
-- **Per-file indexing is now the whole build** (about 33 ms), so that's what the flamegraph profiles.
+- **Per-file indexing is now the whole build** (about 33 ms), so that's what the [flamegraph](#profile-where-the-build-spends-its-time) profiles.
 
 ![Build time across runs, step 8 and the merge alternatives](bench/results/20261004-193448_s9-merge/run_sequence_rust_rayon.png)
 ![Build time per merge alternative](bench/results/20261004-193448_s9-merge/distribution.png)
+
+#### Profile: where the build spends its time
+
+A flamegraph of `s9-segments`. A sampling profiler (`perf`) records, about 1,000 times a second,
+which function each thread is running and the chain of calls that led there. Each box is a
+function; its width is its share of the samples, and the boxes above it are the functions it called.
+
+![Flamegraph of the s9-segments build](bench/results/20261004-231628_s9-flamegraph/flamegraph.svg)
+
+The image on this page is static; open the SVG file itself in a browser to click into a frame or
+search for a function.
+
+**How it was made:** one build takes about 30 ms, too short to sample well, so the `BUILD_REPS`
+variable makes the program build the index that many extra times before the timed build. 30 extra
+builds gave 11,035 samples; another 190 (1.7%) were lost because perf couldn't write them out in
+time. The release build gets debug info, so functions that LTO inlined into their callers still
+get boxes of their own.
+
+```bash
+mkdir -p ~/prof && cd ~/prof   # perf.data can't be written in the Windows-shared repo folder ("Bad address")
+CARGO_PROFILE_RELEASE_DEBUG=true BUILD_REPS=30 cargo flamegraph \
+  -c "record -F 997 --call-graph dwarf,32768 -g" \
+  --manifest-path /IdeaProjects/rust-playground/Cargo.toml \
+  -o /IdeaProjects/rust-playground/data/flamegraph.svg -- ~/bench-data whale
+```
+
+`dwarf,32768` copies 32 KB of each thread's stack per sample. `cargo flamegraph`'s default, 64 KB,
+lost 20% of the samples and wrote 545 MB; its breakdown matched this one within about a point.
+
+| Code in `index_file` | Share of CPU time | Inside it |
+|---|---|---|
+| `local.entry(word)`: find the word in the file's map, or add it | 44% | probing the map and comparing words 25%, hashing them (SipHash) 18% |
+| `.push(pos)`: append the position to the word's `Vec<u32>` | 17% | about half writing, half growing the `Vec` (mimalloc) |
+| `to_lowercase()` on the whole book | 12% | |
+| `words(&text)` and the loop around it: splitting the text into words | about 12% | |
+| Turning the keys into `String`s (the `postings` map) | 10% | hashing every word again for the new map 4%, allocating 2% |
+| `fs::read_to_string` | 1% | the user-space part only: checking that the text is valid UTF-8 |
+| Outside `index_file`: freeing each repetition's index, rayon | 3% | |
+
+Shares are inclusive (a function plus everything it calls), measured from the SVG's frame widths.
+
+- **About half the CPU time is one line,** `local.entry(word)`. Hashing is 18%; probing and comparing
+  is 25%. A matching hash only narrows the search, so the map compares the actual bytes, and the
+  keys are `&str` slices pointing back into the book's text: each comparison likely reads memory
+  scattered over the whole book (a cache miss).
+- **Hashing is about a fifth of the CPU time** (18% in lookups, 4% building the `String` map), which
+  fits step 7, where FxHash took 9% off per-file indexing. The `write_u8` frames are part of how a
+  `str` hashes: its bytes, then a `0xff` byte, so ("ab", "c") and ("a", "bc") don't feed the hasher
+  the same bytes.
+- **Growing the position lists costs as much as filling them.** Each word's `Vec<u32>` starts empty
+  and doubles as it fills; step 6 pre-sized the maps, not these lists.
+- **Allocation is no longer the bottleneck it was before step 2:** mimalloc is about 13% of the CPU
+  time, and about 7% without the repetitions' freeing (see below).
+- **Turning keys into `String`s costs 10%.** It's what lets each segment own its words instead of
+  borrowing the book's text.
+- **Reading the files barely shows,** but only its user-space part is visible.
+
+**Limits:**
+
+- **CPU time, not wall time.** The shares add up the time of all threads. Wall time is set by the
+  slowest thread, likely the one indexing the largest book, moby.txt (1.28 MB), and a profile
+  can't show that. A timer per file would.
+- **User space only.** The container may only profile its own code (`perf_event_paranoid` = 2), so
+  kernel work, such as reading the files and mapping fresh memory, doesn't appear.
+- **The repetitions add about 6%.** Each extra build's index is freed on the main thread, so
+  mimalloc has to hand that memory back to the worker threads that allocated it
+  (`mi_free_block_mt`, `mi_page_thread_collect_to_local`). A single build doesn't do this before its
+  timer stops.
 
 #### Tried and reverted
 
@@ -324,8 +392,8 @@ Each measured against the step before it, in its own experiment.
 
 **Remaining steps:**
 
-1. A flamegraph (a sampling profile of where build time goes), to check the explanations given so
-   far against measurements. The last step of this series.
+1. A new full-series experiment, so step 9 joins the main table, measured alongside every earlier
+   step. The last step of this series.
 
 Then Series 3: this engine against tantivy, a Rust search library built on segments, with
 `s9-dashmap` as the merged-index reference.

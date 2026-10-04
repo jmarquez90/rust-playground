@@ -246,12 +246,20 @@ fn main() -> std::io::Result<()> {
         eprintln!("usage: playground <folder> <query words...>");
         std::process::exit(2);
     }
-    // timeing the build
-    let start = Instant::now();
 
-    // building the index
-    let index = Index::build(Path::new(&args[1]))?;
-    let build_time = start.elapsed(); // before distinct_words(), which isn't part of the build
+    // Profiling: build the index BUILD_REPS extra times so a profiler gets enough samples.
+    // Runs before the timer, so "indexed in" still reports a single build.
+    if let Ok(reps) = env::var("BUILD_REPS") {
+        let reps: u32 = reps.parse().expect("BUILD_REPS must be a whole number");
+        for _ in 0..reps {
+            std::hint::black_box(Index::build(Path::new(&args[1]))?);
+        }
+    }
+
+    let start = Instant::now();                       // timeing the build
+    let index = Index::build(Path::new(&args[1]))?;   // building the index
+    let build_time = start.elapsed();                 // before distinct_words(), which isn't part of the build
+
     println!(
         "{} documents, {} distinct words, indexed in {:?}",
         index.segments.len(),
