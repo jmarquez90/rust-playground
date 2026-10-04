@@ -5,7 +5,11 @@ use std::io::{BufWriter, Write};
 use std::path::Path;
 use std::time::Instant;
 use rayon::prelude::*;
+use mimalloc::MiMalloc;
 
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 // BM25 parameters
 const K1: f64 = 1.2; // how quickly repeated words stop adding to the score
@@ -86,7 +90,6 @@ impl Index {
         }
         eprintln!("  merge: {:?}", t.elapsed());
         Ok(index)
-
     }
 
     // Rank documents with BM25 (k1 = 1.2, b = 0.75).
@@ -172,7 +175,6 @@ fn phrase_count(term_positions: &[&[usize]]) -> usize {
     }
     count
 }
-
 
 // Dumps each word in the index and what document they're linked to using a BTreeMap
 // https://doc.rust-lang.org/std/collections/struct.BTreeMap.html

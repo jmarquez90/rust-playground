@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+mimalloc = "0.1.52"
 rayon = "1.12.0"
 
 [profile.release]
