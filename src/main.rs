@@ -274,7 +274,7 @@ fn main() -> std::io::Result<()> {
 
     // query benchmarking
     if let Ok(reps) = env::var("QUERY_BENCH") {
-        let reps: u32 = reps.parse().expect("QUERY_BENCH must be a whole numberr");
+        let reps: u32 = reps.parse().expect("QUERY_BENCH must be a whole number");
         let (per_query, hits) = time_queries(&index, reps);
         eprintln!("  query: {per_query:?} per query({hits} results)");
     }
