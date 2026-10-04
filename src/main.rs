@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use rayon::prelude::*;
 use mimalloc::MiMalloc;
 
@@ -21,6 +21,13 @@ static GLOBAL: MiMalloc = MiMalloc;
 // BM25 parameters
 const K1: f64 = 1.2; // how quickly repeated words stop adding to the score
 const B: f64 = 0.75; // how much long documents are penalized
+
+// Queries for timing search speed, run when QUERY_BENCH=<repetitions> is set.
+// No phrases of very common words ("of the"): phrase_count's linear scan makes those take milliseconds.
+const BENCH_SEARCHES: [&str; 6] = ["whale", "harpoon", "the", "elizabeth darcy", "white whale harpoon", "sea ship captain boat"];
+const BENCH_PHRASES: [&str; 3] = ["white whale", "captain ahab", "mr darcy"];
+
+
 
 
 fn words(lowercased: &str) -> impl Iterator<Item = &str> {
@@ -219,6 +226,27 @@ fn write_dump(index: &Index, path: &str) -> std::io::Result<()> {
 }
 
 
+fn time_queries(index: &Index, reps: u32) -> (Duration, usize) {
+    let run_all = || {
+        let mut hits = 0;
+        for q in BENCH_SEARCHES {
+            hits += index.search(q).len();
+        }
+        for p in BENCH_PHRASES {
+            hits += index.phrase_search(p).len();
+        }
+        hits
+    };
+    run_all(); // warmp-up, not timed
+    let start = Instant:: now();
+    let mut hits = 0;
+    for _ in 0..reps {
+        hits += run_all();
+    }
+    let queries = (BENCH_SEARCHES.len() + BENCH_PHRASES.len()) as u32;
+    (start.elapsed() / (reps * queries), hits)
+}
+
 
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
@@ -239,8 +267,16 @@ fn main() -> std::io::Result<()> {
         start.elapsed(),
     );
 
+    // write dump
     if let Ok(path) = env::var("INDEX_DUMP") {
         write_dump(&index, &path)?;
+    }
+
+    // query benchmarking
+    if let Ok(reps) = env::var("QUERY_BENCH") {
+        let reps: u32 = reps.parse().expect("QUERY_BENCH must be a whole numberr");
+        let (per_query, hits) = time_queries(&index, reps);
+        eprintln!("  query: {per_query:?} per query({hits} results)");
     }
 
     if args[2] == "--phrase" {
