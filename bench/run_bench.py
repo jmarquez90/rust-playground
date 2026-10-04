@@ -158,8 +158,9 @@ def cmd_snapshot(args):
     if dest.exists() and not args.force:
         sys.exit(f"Snapshot '{args.label}' already exists. Use --force to replace it.")
 
-    print("Building: cargo build --release")
-    if subprocess.run(["cargo", "build", "--release"], cwd=REPO).returncode != 0:
+    build = ["cargo", "build", "--release"] + (["--features", args.features] if args.features else [])
+    print("Building: " + " ".join(build))
+    if subprocess.run(build, cwd=REPO).returncode != 0:
         sys.exit("cargo build failed; snapshot not taken.")
 
     with open(REPO / "Cargo.toml", "rb") as f:
@@ -172,6 +173,7 @@ def cmd_snapshot(args):
         "label": args.label,
         "created": now_iso(),
         "note": args.note,
+        "features": args.features,
         "git": git_state(),
         "rustc": sh(["rustc", "--version"], cwd=REPO),
         "binary_sha256": sha256_file(dest / "bin"),
@@ -197,7 +199,8 @@ def cmd_snapshots(_args):
         print("No snapshots yet. Take one with: uv run bench/run_bench.py snapshot <label>")
     for m in snaps:
         dirty = " (uncommitted changes)" if m["git"].get("dirty") else ""
-        print(f"{m['label']:<16} {m['created']}  commit {str(m['git'].get('commit'))[:8]}{dirty}  {m.get('note') or ''}")
+        features = f" [features: {m['features']}]" if m.get("features") else ""
+        print(f"{m['label']:<16} {m['created']}  commit {str(m['git'].get('commit'))[:8]}{dirty}{features}  {m.get('note') or ''}")
 
 
 # ---------------------------------------------------------------- progress bar
@@ -660,6 +663,8 @@ def main():
     p.add_argument("label")
     p.add_argument("--note", default=None, help="what changed in this version")
     p.add_argument("--force", action="store_true", help="replace an existing snapshot")
+    p.add_argument("--features", default=None,
+                   help="Cargo features to build with, comma-separated (e.g. ahash); recorded with the snapshot")
     p.set_defaults(func=cmd_snapshot)
 
     p = sub.add_parser("snapshots", help="list Rust snapshots")
