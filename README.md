@@ -390,6 +390,47 @@ Each measured against the step before it, in its own experiment.
 
 ![Median build time per step, with step 5](bench/results/20261004-163351_s5-wordids/steps.png)
 
+#### Overview: Python against the end of Series 2
+
+Experiment `20261004-233633_overview`. One run with five configurations: sequential Python, free-threaded
+Python 3.14t with 24 threads, the Rust baseline, and the current code (step 9, segments) with each hasher.
+`s9-safe` uses the default SipHash and `s9-speed` FxHash (`--features rustc-hash`); both are built from
+the same commit (`5abcea3`), so the hasher is the only difference.
+
+| Configuration | Median build (95% CI) | vs Python sequential | Cores used | CPU time | Peak memory |
+|---|---|---|---|---|---|
+| Python, sequential | 820.7 ms (818.6 to 822.9) | 1.00× | 0.97 | 1,413 ms | 162 MB |
+| Python 3.14t, threads (24, free-threaded) | 468.5 ms (466.3 to 471.1) | 1.75× | 1.80 | 2,119 ms | 371 MB |
+| Rust baseline, rayon | 198.2 ms (197.1 to 199.0) | 4.14× | 2.82 | 708 ms | 141 MB |
+| Rust step 9, SipHash (`s9-safe`) | 35.7 ms (35.4 to 35.8) | 23.0× | 9.32 | 487 ms | 135 MB |
+| Rust step 9, FxHash (`s9-speed`) | 32.3 ms (32.1 to 32.5) | 25.4× | 9.49 | 455 ms | 131 MB |
+
+- **Series 2 made the Rust build 6.1× faster** (198.2 to 32.3 ms; 5.6× with the default hasher). Rust
+  is now 25× faster than sequential Python and 14.5× faster than free-threaded Python.
+- **FxHash is now worth 9.3%** (−10.0% to −8.5%) over SipHash, down from 21% in step 7. Most of step 7's
+  gain was in the merge, and segments removed the merge. The trade is unchanged: FxHash for text you
+  trust, SipHash when inputs could be crafted to collide.
+- **Rust does less work, not only more of it at once.** It spends 455 ms of CPU where sequential
+  Python spends 1,413 ms, about a third. Free-threaded Python gets its 1.75× by spending 50% more CPU
+  than sequential Python, and uses 2.3× the memory.
+- **The tuned build uses less memory than the baseline** (131 to 135 MB against 141 MB), even with
+  mimalloc holding freed memory for reuse.
+- **About 9.5 of 24 cores are busy.** That figure counts start-up and exit (about 15 ms of the 48 ms
+  wall time), so more are busy during the build itself. Still, 21 books on 24 threads cap the
+  parallelism, and the largest book (`moby.txt`, 1.28 MB of 13.4 MB) likely decides when the build
+  ends. A timer per file would show it.
+- **Rust's spread looks larger** (9.5% coefficient of variation against Python's 4.5%) only because a
+  few milliseconds of scheduling jitter is a bigger share of 32 ms. The medians are still pinned down
+  to ±0.2 ms.
+- **Compare within this run.** Both Python configurations ran 8 to 9% slower than in Series 1 (756.7
+  to 820.7 ms; 428.8 to 468.5 ms), while the Rust baseline stayed within 2% of the Series 2 runs
+  (195.5 to 198.2 ms).
+
+Both charts use a log scale, so equal distances are equal ratios.
+
+![Build time across runs, Python and Rust at the end of Series 2](bench/results/20261004-233633_overview/run_sequence.png)
+![Build time per configuration, end of Series 2](bench/results/20261004-233633_overview/distribution.png)
+
 **Remaining steps:**
 
 1. A new full-series experiment, so step 9 joins the main table, measured alongside every earlier

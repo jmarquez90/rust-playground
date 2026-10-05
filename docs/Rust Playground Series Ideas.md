@@ -1,6 +1,6 @@
 # rust-playground: every idea in one place
 
-*Last updated 2026-10-04. Companion to `claude/rust-playground-handoff.md`. This is the complete list: every idea raised so far, by Jeremiah, by Claude, or in the README's "Ideas for next exercises". Nothing is ranked here, and no order is decided. Who raised each idea is in brackets.*
+*Last updated 2026-10-04. Companion to `claude/rust-playground-handoff.md`. This is the complete list: every idea raised so far, by Jeremiah, by Claude, or in the README's "Ideas for next exercises". Nothing is ranked here, and no order is decided. Who raised each idea is in brackets. Section H is a separate, parallel project, not a playground series.*
 
 ## Through-line: where Rust and Python divide in MARE Pro [Jeremiah]
 - Every experiment should help decide where to draw the line between Rust and Python in MARE Pro.
@@ -177,6 +177,19 @@ Each type of search needs its own chunking strategy, and we may have to experime
 8. **Save the index to disk and load it** [README list]. Would add a "load against rebuild" benchmark, and is useful before B5, since a service loads its index at startup.
 9. **Corpus scaling: 21 → ~200 → ~2,000 files** [Claude, 10-02]. Not done yet.
 10. **Chunk the books for BM25** [Claude, from B6]: index paragraphs or fixed windows instead of whole books, then sweep the chunk size and b. It's a small first step into B6.
+11. **The survey's "Try in Rust" exercises** [Claude, 2026-10-04; see H]. One per area:
+    - a fused-word splitter;
+    - Snowball stemming in the engine;
+    - a perceptron POS tagger;
+    - PMI word neighbours;
+    - gazetteer NER;
+    - a VADER port;
+    - KWIC and collocations;
+    - a Kneser-Ney trigram model;
+    - a character-trigram language identifier;
+    - TextRank;
+    - Burrows's Delta;
+    - Krippendorff's alpha or TEDS.
 
 ## D. Later
 1. **A Python tuning series** [Claude]: the same treatment Rust got. B7's configuration 2 (`bm25s`) is a first taste.
@@ -213,3 +226,82 @@ Each type of search needs its own chunking strategy, and we may have to experime
   - segments and a sharded merge (s9; segments adopted);
   - query time as a metric (s8).
 - **Profiling:** the flamegraph (456afa6).
+
+## H. Parallel project: a high-visibility, highly useful open-source Rust repo [Jeremiah, 2026-10-04]
+His interests: NLP and computational linguistics. This would be a separate repo, not part of the playground. Nothing is chosen yet.
+
+**Field survey (done 2026-10-04) [Jeremiah asked for it, as a learning experience]:**
+- A Claude Doc, "NLP and Computational Linguistics: A Field Survey": https://claude.ai/code/artifact/039989c1-5773-42b2-b032-77b5d5ed79eb
+- It covers 14 areas. For each: what it does, methods, the Python tools, Rust's status, a "Try in Rust" exercise, and the MARE link. It ends with a table of Rust gaps.
+- **.md copy:** he asked for one. It was delivered in the chat as `nlp-computational-linguistics-survey.md`; where to save it locally is not decided yet.
+- **Open comment in the doc:** should a next pass go deeper on document-parsing evaluation and text repair, or wider (speech, stylometry)?
+
+**What makes a repo like this visible and useful [Claude]:**
+- it fills a gap;
+- it ships Python bindings to PyPI, since that's where the users are (B7 teaches how);
+- it has benchmarks against the Python incumbents (his strength);
+- its scope can reach a credible 1.0 solo;
+- it uses the usual Rust licensing (MIT/Apache-2.0);
+- it doubles as MARE infrastructure and as writing material for Electric Sheep.
+
+**Landscape checked 2026-10-04 (gaps are "not found", not proven):**
+- **Word and character error rates:** already taken in Rust. `werx` (Rust-backed, on PyPI) and `rwer` exist.
+- **Fixing mojibake (garbled text encoding):** `plsfix` exists, a Rust port of ftfy with Python bindings.
+- **General computational linguistics:** `rustling` (details below).
+- **spaCy in Rust:** `SpaRs` runs spaCy's English models natively, but it's experimental and has 0 stars. `udpipe-rs` binds UDPipe.
+- **Sentence segmentation:** the state-of-the-art SaT models (wtpsplit) are Python. Rust has `sentencex` (rules-based) and the older `nnsplit`.
+- **Evaluating document parsing:** reference implementations are Python (OmniDocBench's evaluation code: edit distance, TEDS, reading order). No Rust toolkit found.
+
+**rustling, checked 2026-10-04:**
+- **Owner:** Jackson L. Lee (GitHub `jacksonllee`), a computational linguist with a PhD in Linguistics from the University of Chicago. He works full-time in data analytics and maintains open source on the side.
+- **His other projects:** PyCantonese (~420 stars; an LREC 2022 paper), WikiPron (~376), iso639 (~54), PyLangAcq (~45).
+- **The repo:** about 3 stars, 0 forks, 28 commits, 1 open PR, MIT, v0.9.0 (Sep 30, 2026). It's a personal project, not an organization's.
+- **Already polished:** it ships to PyPI, conda-forge, Pyodide (WASM) and crates.io. It has a Zenodo DOI, a documentation site (docs.rustling.io) and a benchmarks folder comparing it with Python packages.
+- **Not published:** a roadmap or contribution guidelines.
+- **Likely focus (Claude's inference):** its formats (CHAT, ELAN, TextGrid, CoNLL-U) suggest research on language acquisition and spoken language, close to PyLangAcq's world.
+- **Few features because it's young and run by one person,** not because it's poorly built.
+
+**Contribute to rustling or build something better: options [Claude]:**
+1. **Contribute to rustling.**
+   - For: a credible academic maintainer, packaging and CI already solved, his code to learn from, and a fit for corpus linguistics features (collocations, concordance, keyness).
+   - Against: little visibility today (3 stars); he sets the direction and the pace; no contribution guide, so ask first in an issue.
+2. **Build a better general toolkit.**
+   - For: full control and ownership.
+   - Against: competing for the same small audience gains little visibility; it splits a tiny niche; he'd have to rebuild the packaging rustling already has; "better" would need a reason users care about, such as speed, a missing feature area, or a different audience.
+3. **Both [Claude's lean]: own the document-text-quality repo (candidates 1 and 2 below), and contribute corpus linguistics features to rustling.**
+   - Visibility comes from a problem many people have (RAG and document extraction), not from a broader general toolkit.
+   - Contributing to rustling builds a relationship with an established researcher and is good Rust practice.
+   - First step: read rustling's code and benchmarks, check how quickly the open PR gets answered, then open an issue proposing the feature.
+
+**Candidates [Claude]:**
+1. **A toolkit for evaluating document extraction.**
+   - Covers correct words over total words, word precision, fused and split words, CER/WER, reading order, TEDS for tables, and layout.
+   - Fast Rust core with Python bindings, checked against the reference implementations so its numbers match published results.
+   - TEDS (tree edit distance) is CPU-heavy, so Rust's speed matters here.
+   - Ties to B3 and MARE's harness. Its audience is everyone building document AI or RAG ingestion.
+   - Risk: a narrower audience than general NLP.
+2. **Repairing text after extraction.**
+   - Splits fused words (word segmentation from word frequencies, generalizing MARE's finding), rejoins hyphenated line breaks, normalizes ligatures and Unicode, removes headers, footers and page numbers, and rejoins broken lines.
+   - Builds on `plsfix` rather than redoing it.
+   - Every RAG pipeline needs this. Risk: depends on the language, and needs candidate 1's metrics to prove quality.
+3. **Fast sentence and semantic segmentation.**
+   - Runs the SaT models in Rust through `ort`, with a chunker that keeps source offsets.
+   - Ties to B6. Chunking is a hot topic; risks: it depends on the models, and chunking crates like `text-splitter` already exist.
+4. **A corpus linguistics toolkit.**
+   - KWIC concordance, collocations (PMI, log-likelihood, t-score), keyness, dispersion, and suffix-array n-grams over large corpora. Think AntConc or quanteda in Rust, with Python bindings.
+   - Closest to computational linguistics proper. It overlaps `rustling`, so contributing these features to rustling is an alternative.
+5. **A spaCy-style pipeline in Rust:** tokenizer, tagger, parser, lemmatizer, NER.
+   - Highest visibility if it works, but by far the largest effort, and it chases a moving target. SpaRs already exists.
+6. **Contribute to an existing project** (rustling, tantivy, HF tokenizers, text-splitter).
+   - Fastest credibility, but he owns less of it.
+   - The audience comes for free only with the large projects (tantivy, tokenizers); rustling's audience is still tiny.
+
+**Smaller gap-filling crates (from the survey):**
+- agreement statistics (kappa, Krippendorff's alpha);
+- readability and generation metrics (Flesch, ROUGE);
+- stylometry.
+
+**Claude's lean:** candidates 1 and 2 as one project: measure document text quality, then fix it.
+- **Why:** it's the clearest gap found, it rests on his own evidence (fused words, MARE's main metric), it doubles as MARE infrastructure, and it makes a good Electric Sheep story.
+- **How to start:** with 1, which is smaller and can be checked against reference implementations.
+- **Constraint:** test data must be public, since MARE's corpus can't be used (E7, licensing). The OmniDocBench dataset is a candidate, pending a license check.
