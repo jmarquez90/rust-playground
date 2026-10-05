@@ -1,0 +1,191 @@
+{
+  "experiment": "overview",
+  "created": "2026-10-04T23:36:33+00:00",
+  "seed": 665690228,
+  "runs": 1000,
+  "warmup_rounds": 5,
+  "query": "whale",
+  "query_bench_reps": null,
+  "configs": [
+    {
+      "config": "python/seq",
+      "language": "python",
+      "variant": "cpython-3.14.8",
+      "mode": "seq",
+      "cmd": [
+        "/.jbdevcontainer/uv/environments-v2/run-bench-04c43c0828efcd81/bin/python",
+        "/IdeaProjects/rust-playground/bench/index_bench.py",
+        "/home/dev/bench-data",
+        "seq"
+      ],
+      "env": {},
+      "threads": 1
+    },
+    {
+      "config": "python3.14t/thread",
+      "language": "python",
+      "variant": "cpython-3.14.8 (free-threaded)",
+      "mode": "thread",
+      "cmd": [
+        "/home/dev/.local/bin/python3.14t",
+        "/IdeaProjects/rust-playground/bench/index_bench.py",
+        "/home/dev/bench-data",
+        "thread"
+      ],
+      "env": {},
+      "threads": null
+    },
+    {
+      "config": "rust/baseline/rayon",
+      "language": "rust",
+      "variant": "baseline",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/baseline/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null,
+        "QUERY_BENCH": null
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s9-safe/rayon",
+      "language": "rust",
+      "variant": "s9-safe",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s9-safe/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null,
+        "QUERY_BENCH": null
+      },
+      "threads": 24
+    },
+    {
+      "config": "rust/s9-speed/rayon",
+      "language": "rust",
+      "variant": "s9-speed",
+      "mode": "rayon",
+      "cmd": [
+        "/home/dev/bench-bins/s9-speed/bin",
+        "/home/dev/bench-data",
+        "whale"
+      ],
+      "env": {
+        "RAYON_NUM_THREADS": null,
+        "QUERY_BENCH": null
+      },
+      "threads": 24
+    }
+  ],
+  "python": {
+    "executable": "/.jbdevcontainer/uv/environments-v2/run-bench-04c43c0828efcd81/bin/python",
+    "version": "3.14.8 (main, Oct  3 2026, 01:04:31) [Clang 22.1.3 ]"
+  },
+  "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+  "rust_snapshots": [
+    {
+      "label": "baseline",
+      "created": "2026-10-02T22:53:41+00:00",
+      "note": null,
+      "git": {
+        "commit": "d9d8ced31b78ce19466932686bb5175015c0638e",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "1d4d96e4fed09fc85e28463aaf10706dc661ba561a45af727612add482bcdc0e",
+      "main_rs_sha256": "eb25f42977eb5983637569a3ceee7a5e7cb723c7d9461304415bb27d9481b86e",
+      "cargo_toml_sha256": "5e308d448791118e29fe8993ec09730cc008e43b61a326cd1a32d34abca29c9b"
+    },
+    {
+      "label": "s9-safe",
+      "created": "2026-10-04T23:35:04+00:00",
+      "note": "segments; SipHash (default)",
+      "features": null,
+      "git": {
+        "commit": "5abcea317462b06324e97c821129aa1bd3a6e68f",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "288556a2c5108af24c8b8b090a7fca574003362615873fda79648e1c920e375d",
+      "main_rs_sha256": "aa8f5ac111b207760e8788ee67ecc37a2995fbed632368528ceb21499890ebef",
+      "cargo_toml_sha256": "23205ef7ac80f4071efe7b7e8fe4066577f27eb606fe6a3a8599b0297c2c0eba"
+    },
+    {
+      "label": "s9-speed",
+      "created": "2026-10-04T23:35:25+00:00",
+      "note": "segments; FxHash",
+      "features": "rustc-hash",
+      "git": {
+        "commit": "5abcea317462b06324e97c821129aa1bd3a6e68f",
+        "dirty": false
+      },
+      "rustc": "rustc 1.99.0 (b940084d7 2026-09-28)",
+      "binary_sha256": "79183bf69e48edf5f989baab65fd26d455637f2f410de7fec882060fca1e2c70",
+      "main_rs_sha256": "aa8f5ac111b207760e8788ee67ecc37a2995fbed632368528ceb21499890ebef",
+      "cargo_toml_sha256": "23205ef7ac80f4071efe7b7e8fe4066577f27eb606fe6a3a8599b0297c2c0eba"
+    }
+  ],
+  "git": {
+    "commit": "5abcea317462b06324e97c821129aa1bd3a6e68f",
+    "dirty": false
+  },
+  "machine": {
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.41",
+    "cpu_count": 24,
+    "cpus_available": 24,
+    "in_container": true,
+    "cpu_model": "AMD Ryzen 9 5900X 12-Core Processor",
+    "mem_total": "32816800 kB"
+  },
+  "corpus": {
+    "source": "/IdeaProjects/rust-playground/data",
+    "path": "/home/dev/bench-data",
+    "files": 21,
+    "bytes": 13378837,
+    "sha256": "5c2955aa9d4ae998cc5782ed22363e896ae8daa096b830327c7b5ed8a30682b1"
+  },
+  "memory_method": "proc-vmhwm",
+  "notes": "build_ms = program's own timer (main metric). wall_ms = whole process from outside. cpu_ms = user+system CPU of the process tree. peak_tree_rss_mb is sampled every 5 ms.",
+  "verify": {
+    "identical": true,
+    "compared": 4,
+    "failed": 0,
+    "results": [
+      {
+        "config": "python/seq",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "python3.14t/thread",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/baseline/rayon",
+        "error": null
+      },
+      {
+        "config": "rust/s9-safe/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      },
+      {
+        "config": "rust/s9-speed/rayon",
+        "error": null,
+        "sha256": "7788d12c853d87470fda43fbd1df3c8bb63fae39605ad6458dfda4705ec24abf",
+        "lines": 165216
+      }
+    ]
+  }
+}

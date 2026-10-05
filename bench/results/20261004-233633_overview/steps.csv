@@ -1,0 +1,4 @@
+mode,snapshot,config,median_ms,vs_first_pct,vs_first_ci_low,vs_first_ci_high,vs_previous_pct,vs_previous_ci_low,vs_previous_ci_high,query_median_us,query_vs_previous_pct,query_vs_previous_ci_low,query_vs_previous_ci_high,query_vs_first_pct,query_vs_first_ci_low,query_vs_first_ci_high
+rayon,baseline,rust/baseline/rayon,198.2276545,0.0,0.0,0.0,0.0,0.0,0.0,,,,,,,
+rayon,s9-safe,rust/s9-safe/rayon,35.6556845,-82.01275972823458,-82.17511377270033,-81.87845044417098,-82.01275972823458,-82.17511377270033,-81.87845044417098,,,,,,,
+rayon,s9-speed,rust/s9-speed/rayon,32.327282499999995,-83.69184028255755,-83.81062723198748,-83.55846507737438,-9.334842527002962,-10.006868730439177,-8.504516595943413,,,,,,,
