@@ -166,7 +166,7 @@ rayon uses.
 ![Build time across runs, Python and Rust](bench/results/20261003-003932_languages-v2/run_sequence.png)
 ![Build time per configuration](bench/results/20261003-003932_languages-v2/distribution.png)
 
-### Series 2: Rust tuning (in progress)
+### Series 2: Rust tuning
 
 Rust with rayon is the baseline. Each step is one snapshot, built on all the steps before it, and
 each experiment re-runs every earlier step alongside the new one, so the latest experiment holds
@@ -193,10 +193,10 @@ compare steps within one experiment, not across experiments.
 \* Includes the timed searches, which only step 8 runs; see below. Median search time: 3.76 µs per
 search (3.74 to 3.77).
 
-So far: **3.2× faster than the baseline** (−69%) with the default hasher, as of step 8. Step 9's
-segments build another 43% faster than step 8, measured in their own experiment; the next
-full-series experiment will measure the total. Step 7's FxHash option takes off roughly another
-fifth, for text you trust.
+By step 8: **3.2× faster than the baseline** (−69%) with the default hasher. Step 9's segments
+build another 43% faster than step 8, measured in their own experiment. The
+[overview](#overview-python-against-the-end-of-series-2) measures where the series ended: 5.6× faster
+than the baseline with the default hasher, 6.1× with FxHash (step 7's option, for text you trust).
 
 - **The control matches the baseline** (the interval includes zero), so the timers cost nothing and
   the setup measures reliably.
@@ -431,12 +431,11 @@ Both charts use a log scale, so equal distances are equal ratios.
 ![Build time across runs, Python and Rust at the end of Series 2](bench/results/20261004-233633_overview/run_sequence.png)
 ![Build time per configuration, end of Series 2](bench/results/20261004-233633_overview/distribution.png)
 
-**Remaining steps:**
+**Series 2 is complete.** Step 9 was measured against step 8 in its own experiment, and the overview
+measures the end result against the baseline and Python in one run, so a re-run of every step
+together was dropped as adding little.
 
-1. A new full-series experiment, so step 9 joins the main table, measured alongside every earlier
-   step. The last step of this series.
-
-Then Series 3: this engine against tantivy, a Rust search library built on segments, with
+Next, Series 3: this engine against tantivy, a Rust search library built on segments, with
 `s9-dashmap` as the merged-index reference.
 
 ## Committing and pushing
